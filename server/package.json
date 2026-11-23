@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --experimental-strip-types src/sync-engine.ts"
+    "start": "node --experimental-strip-types src/index.ts"
   }
 }

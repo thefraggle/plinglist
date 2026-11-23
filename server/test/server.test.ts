@@ -79,3 +79,43 @@ test('cloud entitlement guard blocks sync when user lacks Pro/Lifetime entitleme
   });
   assert.equal(allowed.acceptedCount, 0);
 });
+
+import type { AddressInfo } from 'node:net';
+import { loadServerConfig } from '../src/config.ts';
+import { createServerApp } from '../src/index.ts';
+
+test('HTTP server exposes GET /api/health and POST /api/v1/sync', async () => {
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), new InMemorySyncRepository());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.equal(healthRes.status, 200);
+    const healthBody = (await healthRes.json()) as { status: string; service: string };
+    assert.equal(healthBody.status, 'ok');
+    assert.equal(healthBody.service, 'plinglist-app');
+
+    const h1 = formatHlc(5000, 0, 'http-client');
+    const syncRes = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'user-http',
+        listIds: ['list-shared'],
+        clientTasks: [makeTask('t-http', h1)],
+        sinceHlc: null,
+      }),
+    });
+    assert.equal(syncRes.status, 200);
+    const syncBody = (await syncRes.json()) as { acceptedCount: number; cursorHlc: string };
+    assert.equal(syncBody.acceptedCount, 1);
+    assert.equal(syncBody.cursorHlc, h1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+  }
+});
