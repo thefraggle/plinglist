@@ -1,0 +1,64 @@
+# Antigravity AI Memory
+.antigravity/
+
+# Closed-Source Cloud, Billing, Push & Brand Assets Repo (git@github.com:thefraggle/plinglist-cloud.git)
+/cloud/
+
+# OS & IDE Files
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+xcuserdata/
+*.xcscmblueprint
+*.xcuserstate
+DerivedData/
+
+# Node / Web / Build Artifacts
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+*.tsbuildinfo
+*.log
+
+# SQLite Databases (Local Dev)
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Mobile / Capacitor / Gradle / Xcode Artifacts
+*.apk
+*.aab
+*.ipa
+.gradle/
+.gradle-cache/
+.kotlin/
+local.properties
+ios/App/Pods/
+ios/App/build/
+android/app/build/
+android/build/
+
+# Keystores & Signing Certificates
+*.jks
+*.keystore
+*.p12
+*.key
+*.pem
+*.p8
+*.mobileprovision
+
+# Secrets, Environment & API Keys
+.env
+.env.*
+*.env
+!.env.example
+!*/.env.example
+google-services.json
+GoogleService-Info.plist
+*credentials*.json
+service-account*.json
