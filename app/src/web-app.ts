@@ -131,16 +131,49 @@ const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
 );
 
 function initApp(): void {
+  let scheduleBackgroundSync = (): void => {};
   const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
   const store = new PlinglistStore({
     storage: window.localStorage,
     locale: browserLocale,
+    onLocalMutation: () => scheduleBackgroundSync(),
   });
 
   let activeView: SmartViewId = 'my-day';
   let activeListId = store.getActiveLists()[0]?.id ?? 'list-tasks';
   let quickAddStarred = false;
   let editingTaskId: string | null = null;
+  let hasSyncedOnce = false;
+  let syncInFlight = false;
+  let syncDebounceTimer: number | undefined;
+
+  async function runSyncNow(): Promise<void> {
+    if (!navigator.onLine || syncInFlight) return;
+    syncInFlight = true;
+    try {
+      const result = await store.syncWithServer();
+      if (result.synced) {
+        hasSyncedOnce = true;
+        if (result.pulledLists > 0 || result.pulledTasks > 0) {
+          render();
+        } else {
+          const syncLabel = document.getElementById('syncStatusText');
+          if (syncLabel) {
+            syncLabel.textContent = t(store.locale, 'sync.synced');
+          }
+        }
+      }
+    } finally {
+      syncInFlight = false;
+    }
+  }
+
+  scheduleBackgroundSync = (): void => {
+    window.clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = window.setTimeout(() => {
+      void runSyncNow();
+    }, 350);
+  };
 
   const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
   const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
@@ -182,7 +215,13 @@ function initApp(): void {
 
     const syncLabel = document.getElementById('syncStatusText');
     if (syncLabel) {
-      syncLabel.textContent = navigator.onLine ? t(store.locale, 'sync.localReady') : t(store.locale, 'sync.offline');
+      if (!navigator.onLine) {
+        syncLabel.textContent = t(store.locale, 'sync.offline');
+      } else {
+        syncLabel.textContent = hasSyncedOnce
+          ? t(store.locale, 'sync.synced')
+          : t(store.locale, 'sync.localReady');
+      }
     }
   }
 
@@ -474,6 +513,7 @@ function initApp(): void {
     await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
     showToast(`${t(store.locale, 'list.inviteCopied')}: ${inviteUrl}`);
     render();
+    void runSyncNow();
   });
 
   document.getElementById('langToggleBtn')?.addEventListener('click', () => {
@@ -592,14 +632,50 @@ function initApp(): void {
     }
   });
 
-  window.addEventListener('online', render);
+  window.addEventListener('online', () => {
+    render();
+    void runSyncNow();
+  });
   window.addEventListener('offline', render);
+  window.addEventListener('focus', () => {
+    void runSyncNow();
+  });
+  window.addEventListener('storage', () => {
+    scheduleBackgroundSync();
+  });
+  window.setInterval(() => {
+    void runSyncNow();
+  }, 15_000);
 
   if ('serviceWorker' in navigator) {
     void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   }
 
+  async function handleJoinParamOnStartup(): Promise<void> {
+    const params = new URLSearchParams(window.location.search);
+    const joinToken = params.get('join');
+    if (!joinToken) {
+      void runSyncNow();
+      return;
+    }
+    try {
+      const joinedList = await store.joinSharedListByToken(joinToken);
+      hasSyncedOnce = true;
+      activeView = 'lists';
+      activeListId = joinedList.id;
+      params.delete('join');
+      const cleanQuery = params.toString();
+      const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', cleanUrl);
+      showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
+      render();
+    } catch {
+      void runSyncNow();
+    }
+  }
+
   render();
+  void handleJoinParamOnStartup();
 }
 
 initApp();

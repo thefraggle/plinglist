@@ -3,6 +3,7 @@ import type {
   HlcTimestamp,
   MergeableTaskField,
   TaskItem,
+  TaskList,
 } from './types.ts';
 
 export interface ParsedHlc {
@@ -142,4 +143,21 @@ export function mergeTaskLww(local: TaskItem, incoming: TaskItem): TaskItem {
   result.updatedAt = local.updatedAt >= incoming.updatedAt ? local.updatedAt : incoming.updatedAt;
 
   return result;
+}
+
+export function mergeListLww(local: TaskList, incoming: TaskList): TaskList {
+  if (local.id !== incoming.id) {
+    throw new Error(`Cannot merge lists with different IDs: ${local.id} vs ${incoming.id}`);
+  }
+  const winner = compareHlc(incoming.hlc, local.hlc) > 0 ? incoming : local;
+  return {
+    id: local.id,
+    title: winner.title,
+    shared: winner.shared,
+    inviteToken: winner.inviteToken,
+    deletedAt: winner.deletedAt,
+    hlc: winner.hlc,
+    createdAt: local.createdAt <= incoming.createdAt ? local.createdAt : incoming.createdAt,
+    updatedAt: local.updatedAt >= incoming.updatedAt ? local.updatedAt : incoming.updatedAt,
+  };
 }

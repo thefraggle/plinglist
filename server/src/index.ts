@@ -3,6 +3,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadServerConfig, type ServerConfig } from './config.ts';
+import { SqliteSyncRepository } from './sqlite-repo.ts';
 import {
   EntitlementRequiredError,
   InMemorySyncRepository,
@@ -21,9 +22,16 @@ const MIME_TYPES: Record<string, string> = {
   '.wav': 'audio/wav',
 };
 
+const API_CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
+    ...API_CORS_HEADERS,
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   });
@@ -54,6 +62,12 @@ export function createServerApp(
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
 
+    if (method === 'OPTIONS' && pathname.startsWith('/api/')) {
+      res.writeHead(204, API_CORS_HEADERS);
+      res.end();
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/health') {
       sendJson(res, 200, {
         status: 'ok',
@@ -81,12 +95,38 @@ export function createServerApp(
       return;
     }
 
+    const inviteApiMatch = pathname.match(/^\/api\/v1\/invites\/([^/]+?)(?:\/join)?$/);
+    if (inviteApiMatch && (method === 'POST' || method === 'GET')) {
+      const token = decodeURIComponent(inviteApiMatch[1]);
+      const list = await repo.resolveInviteToken?.(token);
+      if (!list) {
+        sendJson(res, 404, { error: 'INVITE_NOT_FOUND' });
+        return;
+      }
+      sendJson(res, 200, { list });
+      return;
+    }
+
+    const joinPageMatch = pathname.match(/^\/join\/([^/]+)$/);
+    if (joinPageMatch && method === 'GET') {
+      const token = decodeURIComponent(joinPageMatch[1]);
+      res.writeHead(302, {
+        Location: `${config.publicBaseUrl}/?join=${encodeURIComponent(token)}`,
+      });
+      res.end();
+      return;
+    }
+
     if (method === 'GET' || method === 'HEAD') {
       const normalizedPath = pathname === '/' ? '/index.html' : pathname;
       const safeRelPath = path.posix.normalize(normalizedPath).replace(/^\/+/, '');
       let targetFile = path.resolve(distDir, safeRelPath);
 
-      if (!targetFile.startsWith(distDir) || !fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
+      if (
+        !targetFile.startsWith(distDir) ||
+        !fs.existsSync(targetFile) ||
+        fs.statSync(targetFile).isDirectory()
+      ) {
         targetFile = path.join(distDir, 'index.html');
       }
 
@@ -109,8 +149,11 @@ export function createServerApp(
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadServerConfig();
-  const server = createServerApp(config);
+  const repo = new SqliteSyncRepository(config.sqlitePath);
+  const server = createServerApp(config, repo);
   server.listen(config.port, '0.0.0.0', () => {
-    console.log(`plinglist-app listening on http://0.0.0.0:${config.port}`);
+    console.log(
+      `plinglist-app listening on http://0.0.0.0:${config.port} (sqlite=${config.sqlitePath})`,
+    );
   });
 }

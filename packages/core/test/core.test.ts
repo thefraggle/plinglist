@@ -12,8 +12,10 @@ import {
   getStarredTasks,
   importMicrosoftToDoJson,
   importWunderlistJson,
+  mergeListLww,
   mergeTaskLww,
   type TaskItem,
+  type TaskList,
 } from '../src/index.ts';
 
 function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
@@ -175,4 +177,34 @@ test('computeNextDueDate advances daily, weekly, weekdays, monthly and yearly cl
   assert.equal(computeNextDueDate('2026-11-27', 'weekdays'), '2026-11-30');
   assert.equal(computeNextDueDate('2026-11-23', 'monthly'), '2026-12-23');
   assert.equal(computeNextDueDate('2026-11-23', 'yearly'), '2027-11-23');
+});
+
+test('mergeListLww selects newer HLC state while preserving earliest createdAt', () => {
+  const local: TaskList = {
+    id: 'list-1',
+    title: 'Einkauf',
+    shared: false,
+    inviteToken: null,
+    createdAt: '2026-11-22T09:00:00Z',
+    updatedAt: '2026-11-22T09:00:00Z',
+    deletedAt: null,
+    hlc: formatHlc(1000, 0, 'dev-a'),
+  };
+  const incoming: TaskList = {
+    id: 'list-1',
+    title: 'Wocheneinkauf',
+    shared: true,
+    inviteToken: 'inv-123',
+    createdAt: '2026-11-23T10:00:00Z',
+    updatedAt: '2026-11-23T10:00:00Z',
+    deletedAt: null,
+    hlc: formatHlc(2000, 0, 'dev-b'),
+  };
+
+  const merged = mergeListLww(local, incoming);
+  assert.equal(merged.title, 'Wocheneinkauf');
+  assert.equal(merged.shared, true);
+  assert.equal(merged.inviteToken, 'inv-123');
+  assert.equal(merged.createdAt, '2026-11-22T09:00:00Z');
+  assert.equal(merged.updatedAt, '2026-11-23T10:00:00Z');
 });

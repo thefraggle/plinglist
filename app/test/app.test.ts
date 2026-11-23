@@ -105,3 +105,58 @@ test('PlinglistStore auto-detects Wunderlist & MS To Do JSON imports and generat
   assert.equal(msStats.importedLists, 1);
   assert.equal(msStats.importedTasks, 1);
 });
+
+import type { AddressInfo } from 'node:net';
+import { loadServerConfig } from '../../server/src/config.ts';
+import { createServerApp } from '../../server/src/index.ts';
+import { SqliteSyncRepository } from '../../server/src/sqlite-repo.ts';
+
+test('end-to-end shared list sync between two devices via SqliteSyncRepository HTTP API', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    const storeA = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      nodeId: 'device-a',
+      serverUrl,
+    });
+    const familyList = storeA.addList('Familie');
+    const { list: sharedList } = storeA.shareList(familyList.id);
+    const breadTask = storeA.addTask({ title: 'Brot holen', listId: sharedList.id });
+
+    const pushA = await storeA.syncWithServer();
+    assert.equal(pushA.synced, true);
+
+    const storeB = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      nodeId: 'device-b',
+      serverUrl,
+    });
+    const joined = await storeB.joinSharedListByToken(sharedList.inviteToken!);
+    assert.equal(joined.title, 'Familie');
+
+    const pulledTask = storeB.tasks.find((item) => item.id === breadTask.id);
+    assert.ok(pulledTask);
+    assert.equal(pulledTask.title, 'Brot holen');
+
+    storeB.toggleTaskCompleted(breadTask.id, '2026-11-23');
+    const pushB = await storeB.syncWithServer();
+    assert.equal(pushB.synced, true);
+
+    const pullA = await storeA.syncWithServer();
+    assert.equal(pullA.synced, true);
+    assert.equal(storeA.tasks.find((item) => item.id === breadTask.id)?.completed, true);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

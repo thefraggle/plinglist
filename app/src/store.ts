@@ -3,7 +3,9 @@ import {
   computeNextDueDate,
   importMicrosoftToDoJson,
   importWunderlistJson,
+  mergeListLww,
   mergeTaskLww,
+  type HlcTimestamp,
   type RecurrencePattern,
   type TaskItem,
   type TaskList,
@@ -18,6 +20,8 @@ export interface StorageLike {
 
 interface PersistedState {
   version: 1;
+  userId?: string;
+  cursorHlc?: HlcTimestamp | null;
   locale: SupportedLocale;
   serverUrl: string;
   soundEnabled: boolean;
@@ -57,9 +61,12 @@ export function getLocalIsoDate(date = new Date()): string {
  */
 export class PlinglistStore {
   private readonly storage: StorageLike | null;
+  private readonly onLocalMutation?: () => void;
   private readonly clock: HlcClock;
   lists: TaskList[] = [];
   tasks: TaskItem[] = [];
+  userId: string = createId('usr');
+  cursorHlc: HlcTimestamp | null = null;
   locale: SupportedLocale = 'de';
   serverUrl: string = DEFAULT_SERVER_URL;
   soundEnabled = true;
@@ -68,11 +75,17 @@ export class PlinglistStore {
     storage?: StorageLike | null;
     locale?: SupportedLocale;
     nodeId?: string;
+    serverUrl?: string;
+    onLocalMutation?: () => void;
   }) {
     this.storage = options?.storage ?? null;
+    this.onLocalMutation = options?.onLocalMutation;
     this.clock = new HlcClock(options?.nodeId ?? 'web-local');
     if (options?.locale) {
       this.locale = options.locale;
+    }
+    if (options?.serverUrl) {
+      this.serverUrl = normalizeServerUrl(options.serverUrl);
     }
 
     const loaded = this.load();
@@ -118,11 +131,16 @@ export class PlinglistStore {
       if (parsed.version !== 1 || !Array.isArray(parsed.lists) || !Array.isArray(parsed.tasks)) {
         return false;
       }
+      this.userId = parsed.userId || this.userId;
+      this.cursorHlc = parsed.cursorHlc ?? null;
       this.locale = parsed.locale === 'en' ? 'en' : 'de';
       this.serverUrl = normalizeServerUrl(parsed.serverUrl);
       this.soundEnabled = parsed.soundEnabled !== false;
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
+      for (const list of this.lists) {
+        this.clock.receive(list.hlc);
+      }
       for (const task of this.tasks) {
         this.clock.receive(task.hlc);
       }
@@ -132,17 +150,23 @@ export class PlinglistStore {
     }
   }
 
-  private persist(): void {
-    if (!this.storage) return;
-    const payload: PersistedState = {
-      version: 1,
-      locale: this.locale,
-      serverUrl: this.serverUrl,
-      soundEnabled: this.soundEnabled,
-      lists: this.lists,
-      tasks: this.tasks,
-    };
-    this.storage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  private persist(fromRemoteSync = false): void {
+    if (this.storage) {
+      const payload: PersistedState = {
+        version: 1,
+        userId: this.userId,
+        cursorHlc: this.cursorHlc,
+        locale: this.locale,
+        serverUrl: this.serverUrl,
+        soundEnabled: this.soundEnabled,
+        lists: this.lists,
+        tasks: this.tasks,
+      };
+      this.storage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }
+    if (!fromRemoteSync) {
+      this.onLocalMutation?.();
+    }
   }
 
   private requireTask(taskId: string): TaskItem {
@@ -457,5 +481,105 @@ export class PlinglistStore {
   setSoundEnabled(enabled: boolean): void {
     this.soundEnabled = enabled;
     this.persist();
+  }
+
+  applyServerSync(response: {
+    serverLists?: TaskList[];
+    serverTasks: TaskItem[];
+    cursorHlc: HlcTimestamp | null;
+  }): { pulledLists: number; pulledTasks: number } {
+    let pulledLists = 0;
+    let pulledTasks = 0;
+
+    for (const incomingList of response.serverLists ?? []) {
+      this.clock.receive(incomingList.hlc);
+      const index = this.lists.findIndex((l) => l.id === incomingList.id);
+      if (index >= 0) {
+        this.lists[index] = mergeListLww(this.lists[index], incomingList);
+      } else {
+        this.lists.push(incomingList);
+        pulledLists += 1;
+      }
+    }
+
+    for (const incomingTask of response.serverTasks) {
+      this.clock.receive(incomingTask.hlc);
+      const index = this.tasks.findIndex((item) => item.id === incomingTask.id);
+      if (index >= 0) {
+        this.tasks[index] = mergeTaskLww(this.tasks[index], incomingTask);
+      } else {
+        this.tasks.unshift(incomingTask);
+        pulledTasks += 1;
+      }
+    }
+
+    if (response.cursorHlc) {
+      this.cursorHlc = response.cursorHlc;
+    }
+
+    this.persist(true);
+    return { pulledLists, pulledTasks };
+  }
+
+  async syncWithServer(
+    fetchFn: typeof fetch = globalThis.fetch,
+  ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number }> {
+    try {
+      const response = await fetchFn(`${this.serverUrl}/api/v1/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: this.userId,
+          listIds: this.lists.map((l) => l.id),
+          clientLists: this.lists,
+          clientTasks: this.tasks,
+          sinceHlc: this.cursorHlc,
+        }),
+      });
+      if (!response.ok) {
+        return { synced: false, pulledLists: 0, pulledTasks: 0 };
+      }
+      const data = (await response.json()) as {
+        serverLists?: TaskList[];
+        serverTasks: TaskItem[];
+        cursorHlc: HlcTimestamp | null;
+      };
+      const applied = this.applyServerSync(data);
+      return { synced: true, ...applied };
+    } catch {
+      return { synced: false, pulledLists: 0, pulledTasks: 0 };
+    }
+  }
+
+  async joinSharedListByToken(
+    inviteToken: string,
+    fetchFn: typeof fetch = globalThis.fetch,
+  ): Promise<TaskList> {
+    const cleanToken = inviteToken.trim();
+    if (!cleanToken) {
+      throw new Error('Invite token must not be empty');
+    }
+
+    const response = await fetchFn(
+      `${this.serverUrl}/api/v1/invites/${encodeURIComponent(cleanToken)}/join`,
+      { method: 'POST' },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to join shared list (${response.status})`);
+    }
+    const data = (await response.json()) as { list: TaskList };
+    const joined = data.list;
+
+    const index = this.lists.findIndex((l) => l.id === joined.id);
+    if (index >= 0) {
+      this.lists[index] = mergeListLww(this.lists[index], joined);
+    } else {
+      this.lists.push(joined);
+    }
+    this.cursorHlc = null;
+    this.persist();
+
+    await this.syncWithServer(fetchFn);
+    return joined;
   }
 }

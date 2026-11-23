@@ -119,3 +119,116 @@ test('HTTP server exposes GET /api/health and POST /api/v1/sync', async () => {
     );
   }
 });
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { TaskList } from '../../packages/core/src/index.ts';
+import { SqliteSyncRepository } from '../src/sqlite-repo.ts';
+
+function makeList(id: string, hlc: string, overrides: Partial<TaskList> = {}): TaskList {
+  return {
+    id,
+    title: `List ${id}`,
+    shared: false,
+    inviteToken: null,
+    createdAt: '2026-11-23T10:00:00Z',
+    updatedAt: '2026-11-23T10:00:00Z',
+    deletedAt: null,
+    hlc,
+    ...overrides,
+  };
+}
+
+test('SqliteSyncRepository persists lists and tasks in WAL mode across reopen and resolves invites', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plinglist-sqlite-'));
+  const dbPath = path.join(tmpDir, 'plinglist.db');
+  const h1 = formatHlc(1000, 0, 'dev-a');
+  const h2 = formatHlc(2000, 0, 'dev-b');
+
+  try {
+    const repo1 = new SqliteSyncRepository(dbPath);
+    const sharedList = makeList('list-family', h1, {
+      title: 'Familie',
+      shared: true,
+      inviteToken: 'inv-family-1',
+    });
+    const pushRes = await repo1.applyAndPullDeltas({
+      userId: 'user-a',
+      listIds: ['list-family'],
+      clientLists: [sharedList],
+      clientTasks: [makeTask('t-milk', h2, { listId: 'list-family', title: 'Milch' })],
+      sinceHlc: null,
+    });
+    assert.equal(pushRes.acceptedCount, 2);
+    repo1.close();
+
+    const repo2 = new SqliteSyncRepository(dbPath);
+    const resolved = await repo2.resolveInviteToken('inv-family-1');
+    assert.ok(resolved);
+    assert.equal(resolved.title, 'Familie');
+
+    const pullRes = await repo2.applyAndPullDeltas({
+      userId: 'user-b',
+      listIds: ['list-family'],
+      clientLists: [],
+      clientTasks: [],
+      sinceHlc: null,
+    });
+    assert.equal(pullRes.serverLists?.length, 1);
+    assert.equal(pullRes.serverTasks.length, 1);
+    assert.equal(pullRes.serverTasks[0].title, 'Milch');
+    repo2.close();
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('HTTP server handles CORS OPTIONS preflight, invite join API, and /join/:token redirect', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const h1 = formatHlc(3000, 0, 'dev-a');
+  await repo.applyAndPullDeltas({
+    userId: 'user-a',
+    listIds: ['list-shared'],
+    clientLists: [
+      makeList('list-shared', h1, {
+        title: 'Einkauf',
+        shared: true,
+        inviteToken: 'inv-abc',
+      }),
+    ],
+    clientTasks: [],
+  });
+
+  const server = createServerApp(
+    loadServerConfig({ PORT: '0', PUBLIC_BASE_URL: 'https://plinglist.app' }),
+    repo,
+  );
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    const optRes = await fetch(`${baseUrl}/api/v1/sync`, { method: 'OPTIONS' });
+    assert.equal(optRes.status, 204);
+    assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
+
+    const joinRes = await fetch(`${baseUrl}/api/v1/invites/inv-abc/join`, { method: 'POST' });
+    assert.equal(joinRes.status, 200);
+    const joinBody = (await joinRes.json()) as { list: TaskList };
+    assert.equal(joinBody.list.id, 'list-shared');
+
+    const missingRes = await fetch(`${baseUrl}/api/v1/invites/unknown/join`, { method: 'POST' });
+    assert.equal(missingRes.status, 404);
+
+    const redirectRes = await fetch(`${baseUrl}/join/inv-abc`, { redirect: 'manual' });
+    assert.equal(redirectRes.status, 302);
+    assert.equal(redirectRes.headers.get('location'), 'https://plinglist.app/?join=inv-abc');
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
