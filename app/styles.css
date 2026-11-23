@@ -618,6 +618,11 @@ dialog::backdrop {
   gap: 0.5rem;
 }
 
+.step-title.is-completed {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;

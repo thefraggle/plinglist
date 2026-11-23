@@ -376,8 +376,8 @@ function initApp(): void {
       });
 
       const title = document.createElement('span');
+      title.className = step.completed ? 'step-title is-completed' : 'step-title';
       title.textContent = step.title;
-      if (step.completed) title.style.textDecoration = 'line-through';
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
