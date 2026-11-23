@@ -604,6 +604,7 @@ function initApp(): void {
 
   document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
     (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
+    (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value = store.syncKey;
     (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
     (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked = store.soundEnabled;
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
@@ -613,12 +614,22 @@ function initApp(): void {
   document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const errEl = document.getElementById('settingsErrorText') as HTMLElement;
+    const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value as
+      | 'de'
+      | 'en';
+    const nextSyncKey = (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value;
+    const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
+    const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked;
+
     try {
-      const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value as
-        | 'de'
-        | 'en';
-      const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
-      const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked;
+      store.setSyncKey(nextSyncKey);
+    } catch {
+      errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
+      errEl.hidden = false;
+      return;
+    }
+
+    try {
       store.setServerUrl(nextUrl);
       store.setLocale(nextLocale);
       store.setSoundEnabled(nextSound);
@@ -626,6 +637,7 @@ function initApp(): void {
       void closeTopLayer(settingsDialog);
       showToast(t(store.locale, 'toast.settingsSaved'));
       render();
+      void runSyncNow();
     } catch {
       errEl.textContent = t(store.locale, 'settings.serverUrlInvalid');
       errEl.hidden = false;

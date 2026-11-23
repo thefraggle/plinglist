@@ -170,6 +170,7 @@ test('SqliteSyncRepository persists lists and tasks in WAL mode across reopen an
 
     const pullRes = await repo2.applyAndPullDeltas({
       userId: 'user-b',
+      inviteTokens: { 'list-family': 'inv-family-1' },
       listIds: ['list-family'],
       clientLists: [],
       clientTasks: [],
@@ -229,6 +230,79 @@ test('HTTP server handles CORS OPTIONS preflight, invite join API, and /join/:to
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),
     );
+    repo.close();
+  }
+});
+
+test('zero-auth capability isolation blocks cross-workspace access while allowing syncKey pairing and inviteToken guests', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const h1 = formatHlc(6000, 0, 'owner-1');
+  const h2 = formatHlc(7000, 0, 'attacker');
+
+  try {
+    await repo.applyAndPullDeltas({
+      userId: 'u-alice',
+      syncKey: 'pling-alice-key-1111',
+      listIds: ['list-private', 'list-shared'],
+      clientLists: [
+        makeList('list-private', h1, { title: 'Alice Private' }),
+        makeList('list-shared', h1, {
+          title: 'Shared Groceries',
+          shared: true,
+          inviteToken: 'inv-groceries-99',
+        }),
+      ],
+      clientTasks: [
+        makeTask('t-secret', h1, { listId: 'list-private', title: 'Secret Note' }),
+        makeTask('t-oat', h1, { listId: 'list-shared', title: 'Oat Milk' }),
+      ],
+    });
+
+    // Unauthorized caller guessing the same listId cannot overwrite or pull Alice's private list
+    const intruderRes = await repo.applyAndPullDeltas({
+      userId: 'u-bob',
+      syncKey: 'pling-bob-key-2222',
+      listIds: ['list-private'],
+      clientLists: [makeList('list-private', h2, { title: 'Hijacked' })],
+      clientTasks: [makeTask('t-secret', h2, { listId: 'list-private', title: 'Hijacked Task' })],
+    });
+    assert.equal(intruderRes.acceptedCount, 0);
+    assert.equal(intruderRes.serverLists?.length, 0);
+    assert.equal(intruderRes.serverTasks.length, 0);
+
+    // Alice's second device using the same syncKey pulls all owned lists & tasks automatically
+    const aliceSecondDevice = await repo.applyAndPullDeltas({
+      userId: 'u-alice-phone',
+      syncKey: 'pling-alice-key-1111',
+      listIds: [],
+      clientLists: [],
+      clientTasks: [],
+    });
+    assert.equal(aliceSecondDevice.serverLists?.length, 2);
+    assert.equal(aliceSecondDevice.serverTasks.length, 2);
+    assert.equal(
+      aliceSecondDevice.serverLists?.find((l) => l.id === 'list-private')?.title,
+      'Alice Private',
+    );
+
+    // Guest with valid inviteToken can sync the shared list without knowing Alice's syncKey
+    const guestRes = await repo.applyAndPullDeltas({
+      userId: 'u-guest',
+      syncKey: 'pling-guest-key-3333',
+      inviteTokens: { 'list-shared': 'inv-groceries-99' },
+      listIds: ['list-shared'],
+      clientLists: [],
+      clientTasks: [
+        makeTask('t-oat', h2, {
+          listId: 'list-shared',
+          title: 'Oat Milk',
+          completed: true,
+        }),
+      ],
+    });
+    assert.equal(guestRes.acceptedCount, 1);
+    assert.equal(guestRes.serverTasks.find((t) => t.id === 't-oat')?.completed, true);
+  } finally {
     repo.close();
   }
 });

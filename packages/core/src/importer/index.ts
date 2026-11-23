@@ -201,3 +201,183 @@ export function importMicrosoftToDoJson(rawJson: string, nowHlc: HlcTimestamp): 
 
   return { lists, tasks };
 }
+
+function normalizeCsvDate(raw: string | undefined): string | null {
+  const clean = raw?.trim();
+  if (!clean) return null;
+  const isoMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+  const deMatch = clean.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (deMatch) {
+    const day = deMatch[1].padStart(2, '0');
+    const month = deMatch[2].padStart(2, '0');
+    return `${deMatch[3]}-${month}-${day}`;
+  }
+  return null;
+}
+
+function detectCsvDelimiter(text: string): ',' | ';' {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+  let commas = 0;
+  let semis = 0;
+  let inQuotes = false;
+  for (let i = 0; i < firstLine.length; i += 1) {
+    const ch = firstLine[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (!inQuotes && ch === ',') commas += 1;
+    else if (!inQuotes && ch === ';') semis += 1;
+  }
+  return semis > commas ? ';' : ',';
+}
+
+function parseCsvRows(raw: string, delimiter: ',' | ';'): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      row.push(field);
+      field = '';
+    } else if (ch === '\r') {
+      if (raw[i + 1] === '\n') i += 1;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else if (ch === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((cell) => cell.trim().length > 0));
+}
+
+function slugifyId(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'default';
+}
+
+/**
+ * Parses English or German Microsoft To Do / Outlook CSV exports (comma or semicolon delimited).
+ */
+export function importMicrosoftToDoCsv(rawCsv: string, nowHlc: HlcTimestamp): ImportResult {
+  const cleaned = rawCsv.replace(/^\uFEFF/, '').trim();
+  if (!cleaned) {
+    throw new Error('Empty CSV export');
+  }
+
+  const delimiter = detectCsvDelimiter(cleaned);
+  const rows = parseCsvRows(cleaned, delimiter);
+  if (rows.length < 2) {
+    throw new Error('CSV export must include a header row and at least one task row');
+  }
+
+  const headers = rows[0].map((h) => h.trim().toLowerCase());
+  const findCol = (candidates: readonly string[]): number =>
+    headers.findIndex((h) => candidates.includes(h));
+
+  const titleIdx = findCol(['title', 'subject', 'betreff', 'aufgabe', 'task']);
+  if (titleIdx < 0) {
+    throw new Error('CSV export is missing a title/subject column');
+  }
+
+  const listIdx = findCol(['list', 'list name', 'folder', 'categories', 'liste', 'kategorie']);
+  const completedIdx = findCol(['status', 'completed', 'iscompleted', 'erledigt']);
+  const starredIdx = findCol(['importance', 'priority', 'starred', 'priorität', 'wichtigkeit']);
+  const dueDateIdx = findCol(['due date', 'duedate', 'duedatetime', 'fälligkeitsdatum', 'fällig am']);
+  const noteIdx = findCol(['notes', 'body', 'description', 'notizen', 'beschreibung']);
+
+  const nowIso = new Date().toISOString();
+  const listsByTitle = new Map<string, TaskList>();
+  const tasks: TaskItem[] = [];
+
+  for (let r = 1; r < rows.length; r += 1) {
+    const row = rows[r];
+    const title = row[titleIdx]?.trim();
+    if (!title) continue;
+
+    const listTitle = (listIdx >= 0 ? row[listIdx]?.trim() : '') || 'Microsoft To Do Import';
+    let list = listsByTitle.get(listTitle);
+    if (!list) {
+      list = {
+        id: `csv-list-${slugifyId(listTitle)}`,
+        title: listTitle,
+        shared: false,
+        inviteToken: null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        deletedAt: null,
+        hlc: nowHlc,
+      };
+      listsByTitle.set(listTitle, list);
+    }
+
+    const completedVal = (completedIdx >= 0 ? row[completedIdx] : '')?.trim().toLowerCase() ?? '';
+    const completed = ['completed', 'erledigt', 'abgeschlossen', 'true', '1', 'yes', 'ja'].includes(
+      completedVal,
+    );
+
+    const starredVal = (starredIdx >= 0 ? row[starredIdx] : '')?.trim().toLowerCase() ?? '';
+    const starred = ['high', 'hoch', 'important', 'wichtig', 'true', '1'].includes(starredVal);
+
+    const dueDate = dueDateIdx >= 0 ? normalizeCsvDate(row[dueDateIdx]) : null;
+    const note = noteIdx >= 0 ? (row[noteIdx] ?? '').trim() : '';
+
+    tasks.push({
+      id: `csv-task-${slugifyId(listTitle)}-${r}`,
+      listId: list.id,
+      title,
+      completed,
+      completedAt: completed ? nowIso : null,
+      starred,
+      myDayDate: null,
+      dueDate,
+      reminderAt: null,
+      recurrence: null,
+      note,
+      steps: [],
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      deletedAt: null,
+      hlc: nowHlc,
+    });
+  }
+
+  return {
+    lists: Array.from(listsByTitle.values()),
+    tasks,
+  };
+}

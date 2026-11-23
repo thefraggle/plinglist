@@ -17,6 +17,13 @@ import {
   type SyncResponse,
 } from './sync-engine.ts';
 
+interface StoredListRow {
+  id: string;
+  owner_sync_key: string | null;
+  invite_token: string | null;
+  payload_json: string;
+}
+
 export class SqliteSyncRepository implements SyncRepository {
   private readonly db: DatabaseSync;
   private readonly guard?: CloudEntitlementGuard;
@@ -34,6 +41,7 @@ export class SqliteSyncRepository implements SyncRepository {
 
       CREATE TABLE IF NOT EXISTS lists (
         id TEXT PRIMARY KEY,
+        owner_sync_key TEXT,
         invite_token TEXT,
         hlc TEXT NOT NULL,
         payload_json TEXT NOT NULL
@@ -48,34 +56,59 @@ export class SqliteSyncRepository implements SyncRepository {
       );
       CREATE INDEX IF NOT EXISTS idx_tasks_list_hlc ON tasks(list_id, hlc);
     `);
+
+    try {
+      this.db.exec('ALTER TABLE lists ADD COLUMN owner_sync_key TEXT');
+    } catch {
+      // Column already exists on newly created or previously migrated databases.
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_lists_owner ON lists(owner_sync_key)');
+  }
+
+  private isListRowAuthorized(
+    row: StoredListRow | undefined,
+    callerKey: string,
+    listId: string,
+    inviteTokens?: Record<string, string>,
+    incomingInviteToken?: string | null,
+  ): boolean {
+    if (!row) {
+      return true;
+    }
+    if (!row.owner_sync_key || row.owner_sync_key === callerKey) {
+      return true;
+    }
+    const existing = JSON.parse(row.payload_json) as TaskList;
+    if (existing.shared && existing.inviteToken) {
+      const provided = inviteTokens?.[listId] ?? incomingInviteToken ?? null;
+      return provided === existing.inviteToken;
+    }
+    return false;
   }
 
   async applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse> {
+    const callerKey = request.syncKey?.trim() || request.userId;
     if (this.guard) {
-      const allowed = await this.guard(request.userId);
+      const allowed = await this.guard(callerKey);
       if (!allowed) {
-        throw new EntitlementRequiredError(request.userId);
+        throw new EntitlementRequiredError(callerKey);
       }
     }
 
-    const allowedLists = Array.from(new Set(request.listIds.filter((id) => id.trim().length > 0)));
-    if (allowedLists.length === 0) {
-      return {
-        acceptedCount: 0,
-        serverLists: [],
-        serverTasks: [],
-        cursorHlc: request.sinceHlc ?? null,
-      };
-    }
-
-    const allowedSet = new Set(allowedLists);
+    const requestedListIds = Array.from(
+      new Set(request.listIds.filter((id) => id.trim().length > 0)),
+    );
+    const requestedSet = new Set(requestedListIds);
     let acceptedCount = 0;
 
-    const selectListStmt = this.db.prepare('SELECT payload_json FROM lists WHERE id = ?');
+    const selectListStmt = this.db.prepare(
+      'SELECT id, owner_sync_key, invite_token, payload_json FROM lists WHERE id = ?',
+    );
     const upsertListStmt = this.db.prepare(`
-      INSERT INTO lists (id, invite_token, hlc, payload_json)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO lists (id, owner_sync_key, invite_token, hlc, payload_json)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        owner_sync_key = COALESCE(lists.owner_sync_key, excluded.owner_sync_key),
         invite_token = excluded.invite_token,
         hlc = excluded.hlc,
         payload_json = excluded.payload_json
@@ -94,13 +127,26 @@ export class SqliteSyncRepository implements SyncRepository {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const incomingList of request.clientLists ?? []) {
-        if (!allowedSet.has(incomingList.id)) continue;
-        const row = selectListStmt.get(incomingList.id) as { payload_json: string } | undefined;
+        if (!requestedSet.has(incomingList.id)) continue;
+        const row = selectListStmt.get(incomingList.id) as StoredListRow | undefined;
+        if (
+          !this.isListRowAuthorized(
+            row,
+            callerKey,
+            incomingList.id,
+            request.inviteTokens,
+            incomingList.inviteToken,
+          )
+        ) {
+          continue;
+        }
         const merged = row
           ? mergeListLww(JSON.parse(row.payload_json) as TaskList, incomingList)
           : incomingList;
+        const ownerKey = row?.owner_sync_key ?? callerKey;
         upsertListStmt.run(
           merged.id,
+          ownerKey,
           merged.inviteToken,
           merged.hlc,
           JSON.stringify(merged),
@@ -109,10 +155,17 @@ export class SqliteSyncRepository implements SyncRepository {
       }
 
       for (const incomingTask of request.clientTasks) {
-        if (!allowedSet.has(incomingTask.listId)) continue;
-        const row = selectTaskStmt.get(incomingTask.id) as { payload_json: string } | undefined;
-        const merged = row
-          ? mergeTaskLww(JSON.parse(row.payload_json) as TaskItem, incomingTask)
+        if (!requestedSet.has(incomingTask.listId)) continue;
+        const listRow = selectListStmt.get(incomingTask.listId) as StoredListRow | undefined;
+        if (
+          !this.isListRowAuthorized(listRow, callerKey, incomingTask.listId, request.inviteTokens)
+        ) {
+          continue;
+        }
+
+        const taskRow = selectTaskStmt.get(incomingTask.id) as { payload_json: string } | undefined;
+        const merged = taskRow
+          ? mergeTaskLww(JSON.parse(taskRow.payload_json) as TaskItem, incomingTask)
           : incomingTask;
         upsertTaskStmt.run(
           merged.id,
@@ -129,13 +182,38 @@ export class SqliteSyncRepository implements SyncRepository {
       throw err;
     }
 
-    const placeholders = allowedLists.map(() => '?').join(', ');
+    const authorizedListIds = new Set<string>();
+    for (const listId of requestedListIds) {
+      const row = selectListStmt.get(listId) as StoredListRow | undefined;
+      if (this.isListRowAuthorized(row, callerKey, listId, request.inviteTokens)) {
+        authorizedListIds.add(listId);
+      }
+    }
+
+    const ownedRows = this.db
+      .prepare('SELECT id FROM lists WHERE owner_sync_key = ?')
+      .all(callerKey) as Array<{ id: string }>;
+    for (const owned of ownedRows) {
+      authorizedListIds.add(owned.id);
+    }
+
+    const pullIds = Array.from(authorizedListIds);
+    if (pullIds.length === 0) {
+      return {
+        acceptedCount,
+        serverLists: [],
+        serverTasks: [],
+        cursorHlc: request.sinceHlc ?? null,
+      };
+    }
+
+    const placeholders = pullIds.map(() => '?').join(', ');
     const listRows = this.db
       .prepare(`SELECT payload_json FROM lists WHERE id IN (${placeholders})`)
-      .all(...allowedLists) as Array<{ payload_json: string }>;
+      .all(...pullIds) as Array<{ payload_json: string }>;
     const taskRows = this.db
       .prepare(`SELECT payload_json FROM tasks WHERE list_id IN (${placeholders})`)
-      .all(...allowedLists) as Array<{ payload_json: string }>;
+      .all(...pullIds) as Array<{ payload_json: string }>;
 
     const serverLists: TaskList[] = [];
     const serverTasks: TaskItem[] = [];

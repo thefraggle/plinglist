@@ -1,6 +1,7 @@
 import {
   HlcClock,
   computeNextDueDate,
+  importMicrosoftToDoCsv,
   importMicrosoftToDoJson,
   importWunderlistJson,
   mergeListLww,
@@ -21,6 +22,7 @@ export interface StorageLike {
 interface PersistedState {
   version: 1;
   userId?: string;
+  syncKey?: string;
   cursorHlc?: HlcTimestamp | null;
   locale: SupportedLocale;
   serverUrl: string;
@@ -48,6 +50,25 @@ function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+export function generateSyncKey(): string {
+  const segment = (): string => {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 4);
+    }
+    return Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  };
+  return `pling-${segment()}-${segment()}-${segment()}`;
+}
+
+export function deriveWorkspaceSuffix(syncKey: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < syncKey.length; i += 1) {
+    hash ^= syncKey.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).padStart(7, '0');
+}
+
 export function getLocalIsoDate(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -66,6 +87,7 @@ export class PlinglistStore {
   lists: TaskList[] = [];
   tasks: TaskItem[] = [];
   userId: string = createId('usr');
+  syncKey: string = generateSyncKey();
   cursorHlc: HlcTimestamp | null = null;
   locale: SupportedLocale = 'de';
   serverUrl: string = DEFAULT_SERVER_URL;
@@ -76,6 +98,7 @@ export class PlinglistStore {
     locale?: SupportedLocale;
     nodeId?: string;
     serverUrl?: string;
+    syncKey?: string;
     onLocalMutation?: () => void;
   }) {
     this.storage = options?.storage ?? null;
@@ -86,6 +109,9 @@ export class PlinglistStore {
     }
     if (options?.serverUrl) {
       this.serverUrl = normalizeServerUrl(options.serverUrl);
+    }
+    if (options?.syncKey?.trim()) {
+      this.syncKey = options.syncKey.trim();
     }
 
     const loaded = this.load();
@@ -98,9 +124,10 @@ export class PlinglistStore {
   private seedDefaults(): void {
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
+    const suffix = deriveWorkspaceSuffix(this.syncKey);
     this.lists = [
       {
-        id: 'list-tasks',
+        id: `list-tasks-${suffix}`,
         title: this.locale === 'de' ? 'Aufgaben' : 'Tasks',
         shared: false,
         inviteToken: null,
@@ -110,7 +137,7 @@ export class PlinglistStore {
         hlc,
       },
       {
-        id: 'list-groceries',
+        id: `list-groceries-${suffix}`,
         title: this.locale === 'de' ? 'Einkauf' : 'Groceries',
         shared: false,
         inviteToken: null,
@@ -120,6 +147,10 @@ export class PlinglistStore {
         hlc,
       },
     ];
+  }
+
+  getDefaultTasksListId(): string {
+    return this.getActiveLists()[0]?.id ?? `list-tasks-${deriveWorkspaceSuffix(this.syncKey)}`;
   }
 
   private load(): boolean {
@@ -132,6 +163,7 @@ export class PlinglistStore {
         return false;
       }
       this.userId = parsed.userId || this.userId;
+      this.syncKey = parsed.syncKey?.trim() || this.syncKey;
       this.cursorHlc = parsed.cursorHlc ?? null;
       this.locale = parsed.locale === 'en' ? 'en' : 'de';
       this.serverUrl = normalizeServerUrl(parsed.serverUrl);
@@ -155,6 +187,7 @@ export class PlinglistStore {
       const payload: PersistedState = {
         version: 1,
         userId: this.userId,
+        syncKey: this.syncKey,
         cursorHlc: this.cursorHlc,
         locale: this.locale,
         serverUrl: this.serverUrl,
@@ -425,17 +458,22 @@ export class PlinglistStore {
     this.persist();
   }
 
-  importJson(rawJson: string): { importedLists: number; importedTasks: number } {
-    const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+  importJson(rawInput: string): { importedLists: number; importedTasks: number } {
+    const trimmed = rawInput.replace(/^\uFEFF/, '').trim();
     const hlc = this.clock.now();
 
     let result;
-    if (parsed && typeof parsed === 'object' && 'data' in parsed) {
-      result = importWunderlistJson(rawJson, hlc);
-    } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.lists)) {
-      result = importMicrosoftToDoJson(rawJson, hlc);
+    if (trimmed.startsWith('{')) {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && 'data' in parsed) {
+        result = importWunderlistJson(trimmed, hlc);
+      } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.lists)) {
+        result = importMicrosoftToDoJson(trimmed, hlc);
+      } else {
+        throw new Error('Unsupported export format');
+      }
     } else {
-      throw new Error('Unsupported export format');
+      result = importMicrosoftToDoCsv(trimmed, hlc);
     }
 
     const existingListIds = new Set(this.lists.map((l) => l.id));
@@ -483,6 +521,30 @@ export class PlinglistStore {
     this.persist();
   }
 
+  setSyncKey(nextSyncKey: string): string {
+    const clean = nextSyncKey.trim();
+    if (clean.length < 8) {
+      throw new Error('Sync-Key must be at least 8 characters');
+    }
+    const oldSuffix = deriveWorkspaceSuffix(this.syncKey);
+    const newSuffix = deriveWorkspaceSuffix(clean);
+    this.syncKey = clean;
+    this.cursorHlc = null;
+
+    if (this.tasks.length === 0) {
+      for (const list of this.lists) {
+        if (list.id === `list-tasks-${oldSuffix}`) {
+          list.id = `list-tasks-${newSuffix}`;
+        } else if (list.id === `list-groceries-${oldSuffix}`) {
+          list.id = `list-groceries-${newSuffix}`;
+        }
+      }
+    }
+
+    this.persist();
+    return clean;
+  }
+
   applyServerSync(response: {
     serverLists?: TaskList[];
     serverTasks: TaskItem[];
@@ -524,12 +586,21 @@ export class PlinglistStore {
   async syncWithServer(
     fetchFn: typeof fetch = globalThis.fetch,
   ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number }> {
+    const inviteTokens: Record<string, string> = {};
+    for (const list of this.lists) {
+      if (list.inviteToken) {
+        inviteTokens[list.id] = list.inviteToken;
+      }
+    }
+
     try {
       const response = await fetchFn(`${this.serverUrl}/api/v1/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: this.userId,
+          syncKey: this.syncKey,
+          inviteTokens,
           listIds: this.lists.map((l) => l.id),
           clientLists: this.lists,
           clientTasks: this.tasks,

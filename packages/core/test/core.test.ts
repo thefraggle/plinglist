@@ -10,6 +10,7 @@ import {
   getMyDayTasks,
   getPlannedTasks,
   getStarredTasks,
+  importMicrosoftToDoCsv,
   importMicrosoftToDoJson,
   importWunderlistJson,
   mergeListLww,
@@ -207,4 +208,31 @@ test('mergeListLww selects newer HLC state while preserving earliest createdAt',
   assert.equal(merged.inviteToken, 'inv-123');
   assert.equal(merged.createdAt, '2026-11-22T09:00:00Z');
   assert.equal(merged.updatedAt, '2026-11-23T10:00:00Z');
+});
+
+test('importMicrosoftToDoCsv parses EN comma and DE semicolon CSV exports cleanly', () => {
+  const hlc = formatHlc(4000, 0, 'csv');
+
+  const enCsv = [
+    'Subject,List Name,Status,Importance,Due Date,Notes',
+    '"Buy ""fair"" coffee",Groceries,Not Started,High,2026-12-01,"Whole bean\nMedium roast"',
+    'Archive taxes,Admin,Completed,Normal,2026-11-30,Done',
+  ].join('\n');
+
+  const enRes = importMicrosoftToDoCsv(enCsv, hlc);
+  assert.equal(enRes.lists.length, 2);
+  assert.equal(enRes.tasks.length, 2);
+  assert.equal(enRes.tasks[0].title, 'Buy "fair" coffee');
+  assert.equal(enRes.tasks[0].starred, true);
+  assert.equal(enRes.tasks[0].dueDate, '2026-12-01');
+  assert.equal(enRes.tasks[0].note, 'Whole bean\nMedium roast');
+  assert.equal(enRes.tasks[1].completed, true);
+
+  const deCsv = `\uFEFFBetreff;Liste;Erledigt;Priorität;Fälligkeitsdatum;Notizen\nSteuererklärung;Finanzen;ja;hoch;15.05.2027;Elster prüfen`;
+  const deRes = importMicrosoftToDoCsv(deCsv, hlc);
+  assert.equal(deRes.lists[0].title, 'Finanzen');
+  assert.equal(deRes.tasks[0].completed, true);
+  assert.equal(deRes.tasks[0].starred, true);
+  assert.equal(deRes.tasks[0].dueDate, '2027-05-15');
+  assert.equal(deRes.tasks[0].note, 'Elster prüfen');
 });

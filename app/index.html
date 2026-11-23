@@ -229,8 +229,8 @@
           <p class="prose-note" data-i18n="importer.description"></p>
 
           <div class="field-group">
-            <label for="importFileInput" data-i18n="importer.fileLabel">JSON-Datei wählen</label>
-            <input id="importFileInput" type="file" accept=".json,application/json" />
+            <label for="importFileInput" data-i18n="importer.fileLabel">JSON- oder CSV-Datei wählen</label>
+            <input id="importFileInput" type="file" accept=".json,.csv,application/json,text/csv" />
           </div>
 
           <div class="field-group">
@@ -267,6 +267,12 @@
               <option value="de">Deutsch</option>
               <option value="en">English</option>
             </select>
+          </div>
+
+          <div class="field-group">
+            <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
+            <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
+            <small class="field-hint" data-i18n="settings.syncKeyHint"></small>
           </div>
 
           <div class="field-group">

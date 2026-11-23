@@ -50,7 +50,7 @@ test('PlinglistStore persists tasks, steps, and spawns next recurring occurrence
 
   const task = store.addTask({
     title: 'Müll rausbringen',
-    listId: 'list-tasks',
+    listId: store.getDefaultTasksListId(),
     dueDate: '2026-11-23',
     recurrence: 'weekly',
     myDayDate: '2026-11-23',
@@ -153,6 +153,47 @@ test('end-to-end shared list sync between two devices via SqliteSyncRepository H
     const pullA = await storeA.syncWithServer();
     assert.equal(pullA.synced, true);
     assert.equal(storeA.tasks.find((item) => item.id === breadTask.id)?.completed, true);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
+
+test('zero-auth syncKey pairs two devices without accounts and store imports CSV exports', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    const phone = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      nodeId: 'phone-1',
+      serverUrl,
+    });
+    const csvStats = phone.importJson(
+      'Betreff;Liste;Erledigt;Priorität\nReisepass erneuern;Reisen;nein;hoch',
+    );
+    assert.equal(csvStats.importedLists, 1);
+    assert.equal(csvStats.importedTasks, 1);
+    assert.equal((await phone.syncWithServer()).synced, true);
+
+    const laptop = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      nodeId: 'laptop-1',
+      serverUrl,
+    });
+    laptop.setSyncKey(phone.syncKey);
+    const syncRes = await laptop.syncWithServer();
+    assert.equal(syncRes.synced, true);
+    assert.ok(laptop.lists.some((l) => l.title === 'Reisen'));
+    assert.ok(laptop.tasks.some((t) => t.title === 'Reisepass erneuern' && t.starred));
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

@@ -2,6 +2,12 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.2] - 2026-11-23
+
+### Added
+- **Zero-Auth Capability Sync (`syncKey` + `inviteTokens`):** Replaced static default list IDs with workspace-scoped IDs (`deriveWorkspaceSuffix`), added random `pling-xxxx-xxxx-xxxx` Sync-Keys for account-free multi-device pairing (`setSyncKey` + Settings UI), and enforced capability checks in `InMemorySyncRepository` and `SqliteSyncRepository` (`owner_sync_key` column + shared list `invite_token` validation).
+- **Microsoft To Do / Outlook CSV Importer (`importMicrosoftToDoCsv`):** Added RFC 4180 CSV parser supporting both English comma-delimited and German semicolon-delimited (`DD.MM.YYYY`) exports with BOM stripping, quoted multi-line notes, starred importance, and due dates; auto-detected in `PlinglistStore.importJson()` and `#importFileInput` (`.json,.csv`).
+
 ## [0.1.1] - 2026-11-23
 
 ### Added
