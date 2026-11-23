@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0d6b58" />
+    <title>Plinglist — Pling. Done.</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation">
+        <div class="brand-row">
+          <span class="brand-mark" aria-hidden="true">✓</span>
+          <div class="brand-copy">
+            <span class="brand-name">Plinglist</span>
+            <span class="brand-status" id="syncStatusText"></span>
+          </div>
+        </div>
+
+        <nav class="nav-group" aria-label="Smart views">
+          <button type="button" class="nav-item" data-view="my-day" aria-current="page">
+            <span class="nav-label" data-i18n="nav.myDay">Mein Tag</span>
+            <span class="nav-count" id="countMyDay">0</span>
+          </button>
+          <button type="button" class="nav-item" data-view="starred">
+            <span class="nav-label" data-i18n="nav.starred">Wichtig</span>
+            <span class="nav-count" id="countStarred">0</span>
+          </button>
+          <button type="button" class="nav-item" data-view="planned">
+            <span class="nav-label" data-i18n="nav.planned">Geplant</span>
+            <span class="nav-count" id="countPlanned">0</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="lists-section">
+          <p class="section-label" data-i18n="nav.lists">Listen</p>
+          <nav id="customListsNav" class="nav-group" aria-label="Lists"></nav>
+
+          <form id="newListForm" class="inline-add-form">
+            <label for="newListInput" class="sr-only" data-i18n="nav.newListPlaceholder">Neue Liste...</label>
+            <input
+              id="newListInput"
+              type="text"
+              autocomplete="off"
+              maxlength="80"
+              data-i18n-placeholder="nav.newListPlaceholder"
+              placeholder="Neue Liste..."
+              required
+            />
+            <button type="submit" class="btn-secondary" data-i18n="nav.createList">+</button>
+          </form>
+        </div>
+
+        <div class="sidebar-footer">
+          <button type="button" id="openImportBtn" class="btn-ghost" data-i18n="nav.import">
+            Import (Wunderlist / MS To Do)
+          </button>
+          <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
+            Einstellungen
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-view">
+        <header class="view-header">
+          <div>
+            <h1 id="viewTitle">Mein Tag</h1>
+            <p id="viewSubtitle" class="view-subtitle"></p>
+          </div>
+          <div class="header-actions">
+            <button type="button" id="shareListBtn" class="btn-secondary" hidden data-i18n="list.share">
+              Liste teilen
+            </button>
+            <button type="button" id="langToggleBtn" class="btn-secondary" aria-label="Switch language">
+              DE / EN
+            </button>
+          </div>
+        </header>
+
+        <section id="suggestionsSection" class="suggestions-panel" hidden>
+          <details id="suggestionsDetails">
+            <summary>
+              <span data-i18n="myDay.suggestionsTitle">Vorschläge für heute</span>
+              <span id="suggestionsCount" class="pill-count">0</span>
+            </summary>
+            <ul id="suggestionsList" class="task-list compact"></ul>
+          </details>
+        </section>
+
+        <form id="addTaskForm" class="quick-add-form">
+          <label for="newTaskTitle" class="sr-only" data-i18n="task.addPlaceholder">Aufgabe hinzufügen...</label>
+          <input
+            id="newTaskTitle"
+            type="text"
+            autocomplete="off"
+            maxlength="240"
+            data-i18n-placeholder="task.addPlaceholder"
+            placeholder="Aufgabe hinzufügen..."
+            required
+          />
+          <label for="newTaskDueDate" class="sr-only" data-i18n="task.dueDate">Fälligkeitsdatum</label>
+          <input id="newTaskDueDate" type="date" />
+          <button
+            type="button"
+            id="newTaskStarBtn"
+            class="btn-icon"
+            aria-pressed="false"
+            data-i18n-aria="task.starAria"
+            title="Wichtig"
+          >
+            ☆
+          </button>
+          <button type="submit" class="btn-primary" data-i18n="task.addButton">Hinzufügen</button>
+        </form>
+
+        <ul id="activeTasksList" class="task-list"></ul>
+        <p id="emptyStateText" class="empty-state" hidden data-i18n="task.emptyView"></p>
+
+        <details id="completedSection" class="completed-section" hidden>
+          <summary>
+            <span data-i18n="task.completedSection">Erledigt</span>
+            <span id="completedCount" class="pill-count">0</span>
+          </summary>
+          <ul id="completedTasksList" class="task-list completed"></ul>
+        </details>
+      </main>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <dialog id="taskDetailDialog" closedby="any" aria-labelledby="taskDetailDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="taskDetailDialogTitle" data-i18n="task.steps">Details</h2>
+          <button type="button" class="btn-ghost" data-close-dialog="taskDetailDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+
+        <form id="taskDetailForm" class="dialog-body">
+          <div class="field-group">
+            <label for="detailTitleInput" class="sr-only">Title</label>
+            <input id="detailTitleInput" type="text" required maxlength="240" />
+          </div>
+
+          <div class="detail-actions-row">
+            <button type="button" id="detailMyDayBtn" class="btn-secondary"></button>
+            <button type="button" id="detailStarBtn" class="btn-secondary"></button>
+          </div>
+
+          <div class="steps-box">
+            <p class="field-label" data-i18n="task.steps">Schritte</p>
+            <ul id="detailStepsList" class="steps-list"></ul>
+            <div class="inline-add-form">
+              <label for="detailNewStepInput" class="sr-only" data-i18n="task.addStepPlaceholder"></label>
+              <input
+                id="detailNewStepInput"
+                type="text"
+                autocomplete="off"
+                maxlength="160"
+                data-i18n-placeholder="task.addStepPlaceholder"
+                placeholder="Nächster Schritt..."
+              />
+              <button type="button" id="detailAddStepBtn" class="btn-secondary" data-i18n="task.addStepButton">
+                +
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field-group">
+              <label for="detailDueDateInput" data-i18n="task.dueDate">Fälligkeitsdatum</label>
+              <input id="detailDueDateInput" type="date" />
+            </div>
+            <div class="field-group">
+              <label for="detailReminderInput" data-i18n="task.reminder">Erinnerung</label>
+              <input id="detailReminderInput" type="datetime-local" />
+            </div>
+            <div class="field-group">
+              <label for="detailRecurrenceSelect" data-i18n="task.recurrence">Wiederholung</label>
+              <select id="detailRecurrenceSelect">
+                <option value="" data-i18n="task.recurrenceNone">Nie</option>
+                <option value="daily" data-i18n="task.recurrenceDaily">Täglich</option>
+                <option value="weekdays" data-i18n="task.recurrenceWeekdays">Werktags</option>
+                <option value="weekly" data-i18n="task.recurrenceWeekly">Wöchentlich</option>
+                <option value="monthly" data-i18n="task.recurrenceMonthly">Monatlich</option>
+                <option value="yearly" data-i18n="task.recurrenceYearly">Jährlich</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="detailNoteInput" data-i18n="task.note">Notizen</label>
+            <textarea
+              id="detailNoteInput"
+              rows="4"
+              data-i18n-placeholder="task.notePlaceholder"
+              placeholder="Notiz hinzufügen..."
+            ></textarea>
+          </div>
+
+          <div class="dialog-footer">
+            <button type="button" id="detailDeleteBtn" class="btn-danger" data-i18n="task.delete">
+              Aufgabe löschen
+            </button>
+            <button type="submit" class="btn-primary" data-i18n="settings.save">Speichern</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- 1-Click Importer Modal -->
+    <dialog id="importDialog" closedby="any" aria-labelledby="importDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="importDialogTitle" data-i18n="importer.title">
+            Aus Wunderlist oder Microsoft To Do importieren
+          </h2>
+          <button type="button" class="btn-ghost" data-close-dialog="importDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+
+        <form id="importForm" class="dialog-body">
+          <p class="prose-note" data-i18n="importer.description"></p>
+
+          <div class="field-group">
+            <label for="importFileInput" data-i18n="importer.fileLabel">JSON-Datei wählen</label>
+            <input id="importFileInput" type="file" accept=".json,application/json" />
+          </div>
+
+          <div class="field-group">
+            <label for="importJsonInput" data-i18n="importer.pasteLabel">Oder JSON einfügen</label>
+            <textarea id="importJsonInput" rows="6" spellcheck="false"></textarea>
+          </div>
+
+          <p id="importErrorText" class="error-text" hidden></p>
+
+          <div class="dialog-footer">
+            <button type="button" id="loadSampleImportBtn" class="btn-secondary" data-i18n="importer.loadSample">
+              Beispiel-Export laden
+            </button>
+            <button type="submit" class="btn-primary" data-i18n="importer.submit">Jetzt importieren</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <!-- Settings Modal -->
+    <dialog id="settingsDialog" closedby="any" aria-labelledby="settingsDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="settingsDialogTitle" data-i18n="settings.title">Einstellungen</h2>
+          <button type="button" class="btn-ghost" data-close-dialog="settingsDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+
+        <form id="settingsForm" class="dialog-body">
+          <div class="field-group">
+            <label for="settingsLocaleSelect" data-i18n="settings.language">Sprache</label>
+            <select id="settingsLocaleSelect">
+              <option value="de">Deutsch</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label for="settingsServerUrlInput" data-i18n="settings.serverUrl">Server-URL</label>
+            <input id="settingsServerUrlInput" type="url" autocomplete="url" required />
+            <small class="field-hint" data-i18n="settings.serverUrlHint"></small>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="settingsSoundCheckbox" type="checkbox" />
+            <span data-i18n="settings.soundEnabled"></span>
+          </label>
+
+          <p id="settingsErrorText" class="error-text" hidden></p>
+
+          <div class="dialog-footer">
+            <button type="submit" class="btn-primary" data-i18n="settings.save">Speichern</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <div id="toastRegion" role="status" aria-live="polite" class="toast-region"></div>
+
+    <script type="module" src="./app/src/web-app.js"></script>
+  </body>
+</html>

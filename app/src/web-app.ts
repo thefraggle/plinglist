@@ -1,0 +1,605 @@
+import {
+  getListTasks,
+  getMyDaySuggestions,
+  getMyDayTasks,
+  getPlannedTasks,
+  getStarredTasks,
+  type RecurrencePattern,
+  type SmartViewId,
+  type TaskItem,
+} from '../../packages/core/src/index.ts';
+import { CC0_CHIME_NOTES } from './audio.ts';
+import { t, type TranslationKey } from './i18n.ts';
+import { PlinglistStore, getLocalIsoDate } from './store.ts';
+
+let audioContext: AudioContext | null = null;
+let supportsDisplayTransition: boolean | undefined;
+
+function canTransitionDisplay(): boolean {
+  if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+  if (!window.CSS?.supports?.('transition-behavior', 'allow-discrete') || !document.body) {
+    return false;
+  }
+  const probe = document.createElement('div');
+  probe.style.cssText = 'transition: display 1s allow-discrete !important; display: block;';
+  document.body.appendChild(probe);
+  getComputedStyle(probe).display;
+  probe.style.display = 'none';
+  supportsDisplayTransition = getComputedStyle(probe).display === 'block';
+  probe.remove();
+  return supportsDisplayTransition;
+}
+
+function supportsTopLayerExit(): boolean {
+  return Boolean(window.CSS?.supports?.('overlay', 'auto') && canTransitionDisplay());
+}
+
+async function closeTopLayer(dialog: HTMLDialogElement): Promise<void> {
+  if (!dialog.open) return;
+  if (!supportsTopLayerExit()) {
+    dialog.setAttribute('data-closing', '');
+    const animations = dialog.getAnimations({ subtree: true });
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((resolve) => setTimeout(resolve, 400)),
+      ]);
+    }
+    if (!dialog.hasAttribute('data-closing')) return;
+    dialog.removeAttribute('data-closing');
+  }
+  dialog.close();
+}
+
+function wireDialogLightDismiss(dialog: HTMLDialogElement): void {
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    void closeTopLayer(dialog);
+  });
+
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    dialog.addEventListener('click', (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      const inside =
+        rect.top <= event.clientY &&
+        event.clientY <= rect.top + rect.height &&
+        rect.left <= event.clientX &&
+        event.clientX <= rect.left + rect.width;
+      if (!inside) {
+        void closeTopLayer(dialog);
+      }
+    });
+  }
+}
+
+function playPlingChime(): void {
+  const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!audioContext) {
+    audioContext = new AudioCtx();
+  }
+  if (audioContext.state === 'suspended') {
+    void audioContext.resume();
+  }
+
+  let startTime = audioContext.currentTime;
+  for (const note of CC0_CHIME_NOTES) {
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(note.frequencyHz, startTime);
+    gain.gain.setValueAtTime(0.001, startTime);
+    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.durationMs / 1000);
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.start(startTime);
+    osc.stop(startTime + note.durationMs / 1000);
+    startTime += 0.055;
+  }
+}
+
+const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
+  {
+    data: {
+      lists: [{ id: 501, title: 'Wochenende / Weekend' }],
+      tasks: [
+        {
+          id: 9001,
+          list_id: 501,
+          title: 'Kaffeebohnen rösten lassen',
+          starred: true,
+          due_date: getLocalIsoDate(),
+          recurrence_type: 'week',
+        },
+        {
+          id: 9002,
+          list_id: 501,
+          title: 'MS To Do Export sichern',
+          starred: false,
+        },
+      ],
+      subtasks: [
+        { id: 1, task_id: 9001, title: 'Espresso-Mahlgrad prüfen', completed: false },
+      ],
+      notes: [{ task_id: 9001, content: 'Importiert per 1-Klick-Migration' }],
+    },
+  },
+  null,
+  2,
+);
+
+function initApp(): void {
+  const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
+  const store = new PlinglistStore({
+    storage: window.localStorage,
+    locale: browserLocale,
+  });
+
+  let activeView: SmartViewId = 'my-day';
+  let activeListId = store.getActiveLists()[0]?.id ?? 'list-tasks';
+  let quickAddStarred = false;
+  let editingTaskId: string | null = null;
+
+  const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
+  const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
+  const settingsDialog = document.getElementById('settingsDialog') as HTMLDialogElement;
+  [taskDialog, importDialog, settingsDialog].forEach(wireDialogLightDismiss);
+
+  document.querySelectorAll<HTMLButtonElement>('[data-close-dialog]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.closeDialog;
+      const target = targetId ? (document.getElementById(targetId) as HTMLDialogElement | null) : null;
+      if (target) void closeTopLayer(target);
+    });
+  });
+
+  function showToast(message: string): void {
+    const region = document.getElementById('toastRegion');
+    if (!region) return;
+    const item = document.createElement('div');
+    item.className = 'toast';
+    item.textContent = message;
+    region.appendChild(item);
+    window.setTimeout(() => item.remove(), 2400);
+  }
+
+  function applyTranslations(): void {
+    document.documentElement.lang = store.locale;
+    document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
+      const key = el.dataset.i18n as TranslationKey;
+      el.textContent = t(store.locale, key);
+    });
+    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]').forEach((el) => {
+      const key = el.dataset.i18nPlaceholder as TranslationKey;
+      el.placeholder = t(store.locale, key);
+    });
+    document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => {
+      const key = el.dataset.i18nAria as TranslationKey;
+      el.setAttribute('aria-label', t(store.locale, key));
+    });
+
+    const syncLabel = document.getElementById('syncStatusText');
+    if (syncLabel) {
+      syncLabel.textContent = navigator.onLine ? t(store.locale, 'sync.localReady') : t(store.locale, 'sync.offline');
+    }
+  }
+
+  function createTaskElement(task: TaskItem, isSuggestion = false): HTMLLIElement {
+    const li = document.createElement('li');
+    li.className = `task-row${task.completed ? ' is-completed' : ''}`;
+
+    const leftBtn = document.createElement('button');
+    leftBtn.type = 'button';
+    leftBtn.className = isSuggestion ? 'btn-secondary' : 'task-check-btn';
+    if (isSuggestion) {
+      leftBtn.textContent = '+';
+      leftBtn.title = t(store.locale, 'myDay.addToMyDay');
+      leftBtn.setAttribute('aria-label', t(store.locale, 'myDay.addToMyDay'));
+      leftBtn.addEventListener('click', () => {
+        store.toggleTaskMyDay(task.id, getLocalIsoDate());
+        render();
+      });
+    } else {
+      leftBtn.textContent = task.completed ? '✓' : '';
+      leftBtn.setAttribute('aria-label', t(store.locale, 'task.completeAria'));
+      leftBtn.addEventListener('click', () => {
+        const wasCompleted = task.completed;
+        const { nextRecurringTask } = store.toggleTaskCompleted(task.id, getLocalIsoDate());
+        if (!wasCompleted) {
+          if (store.soundEnabled) playPlingChime();
+          navigator.vibrate?.(15);
+          showToast(
+            nextRecurringTask
+              ? `${t(store.locale, 'toast.plingDone')} (${t(store.locale, 'toast.nextRecurring')})`
+              : t(store.locale, 'toast.plingDone'),
+          );
+        }
+        render();
+      });
+    }
+
+    const mainBtn = document.createElement('button');
+    mainBtn.type = 'button';
+    mainBtn.className = 'task-main-btn';
+    mainBtn.addEventListener('click', () => openTaskDetail(task.id));
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'task-title';
+    titleSpan.textContent = task.title;
+    mainBtn.appendChild(titleSpan);
+
+    const metaParts: string[] = [];
+    if (task.steps.length > 0) {
+      const doneSteps = task.steps.filter((s) => s.completed).length;
+      metaParts.push(`${doneSteps}/${task.steps.length} ${t(store.locale, 'task.steps')}`);
+    }
+    if (task.dueDate) metaParts.push(task.dueDate);
+    if (task.recurrence) metaParts.push(`↻ ${task.recurrence}`);
+    if (task.note.trim()) metaParts.push('📝');
+
+    if (metaParts.length > 0) {
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'task-meta';
+      metaDiv.textContent = metaParts.join(' · ');
+      mainBtn.appendChild(metaDiv);
+    }
+
+    const starBtn = document.createElement('button');
+    starBtn.type = 'button';
+    starBtn.className = 'btn-icon';
+    starBtn.setAttribute('aria-pressed', String(task.starred));
+    starBtn.setAttribute('aria-label', t(store.locale, 'task.starAria'));
+    starBtn.textContent = task.starred ? '★' : '☆';
+    starBtn.addEventListener('click', () => {
+      store.toggleTaskStarred(task.id);
+      render();
+    });
+
+    li.append(leftBtn, mainBtn, starBtn);
+    return li;
+  }
+
+  function render(): void {
+    applyTranslations();
+    const today = getLocalIsoDate();
+    const activeLists = store.getActiveLists();
+    if (!activeLists.some((l) => l.id === activeListId) && activeLists[0]) {
+      activeListId = activeLists[0].id;
+    }
+
+    const myDayItems = getMyDayTasks(store.tasks, today);
+    const starredItems = getStarredTasks(store.tasks);
+    const plannedItems = getPlannedTasks(store.tasks);
+    const suggestions = getMyDaySuggestions(store.tasks, today);
+
+    (document.getElementById('countMyDay') as HTMLElement).textContent = String(
+      myDayItems.filter((item) => !item.completed).length,
+    );
+    (document.getElementById('countStarred') as HTMLElement).textContent = String(starredItems.length);
+    (document.getElementById('countPlanned') as HTMLElement).textContent = String(plannedItems.length);
+
+    document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
+      const isCurrent = btn.dataset.view === activeView;
+      btn.setAttribute('aria-current', isCurrent ? 'page' : 'false');
+    });
+
+    const listsNav = document.getElementById('customListsNav') as HTMLElement;
+    listsNav.replaceChildren();
+    for (const list of activeLists) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nav-item';
+      btn.setAttribute('aria-current', activeView === 'lists' && activeListId === list.id ? 'page' : 'false');
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = list.shared ? `${list.title} (${t(store.locale, 'list.sharedBadge')})` : list.title;
+      const countSpan = document.createElement('span');
+      countSpan.className = 'nav-count';
+      countSpan.textContent = String(
+        getListTasks(store.tasks, list.id).filter((item) => !item.completed).length,
+      );
+
+      btn.append(labelSpan, countSpan);
+      btn.addEventListener('click', () => {
+        activeView = 'lists';
+        activeListId = list.id;
+        render();
+      });
+      listsNav.appendChild(btn);
+    }
+
+    const viewTitle = document.getElementById('viewTitle') as HTMLElement;
+    const viewSubtitle = document.getElementById('viewSubtitle') as HTMLElement;
+    const shareBtn = document.getElementById('shareListBtn') as HTMLButtonElement;
+    const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
+
+    let visibleTasks: TaskItem[] = [];
+    shareBtn.hidden = activeView !== 'lists';
+    suggestionsSection.hidden = activeView !== 'my-day' || suggestions.length === 0;
+
+    if (activeView === 'my-day') {
+      viewTitle.textContent = t(store.locale, 'nav.myDay');
+      viewSubtitle.textContent = `${today} · ${t(store.locale, 'myDay.resetHint')}`;
+      visibleTasks = myDayItems;
+    } else if (activeView === 'starred') {
+      viewTitle.textContent = t(store.locale, 'nav.starred');
+      viewSubtitle.textContent = '';
+      visibleTasks = starredItems;
+    } else if (activeView === 'planned') {
+      viewTitle.textContent = t(store.locale, 'nav.planned');
+      viewSubtitle.textContent = '';
+      visibleTasks = plannedItems;
+    } else {
+      const currentList = activeLists.find((l) => l.id === activeListId);
+      viewTitle.textContent = currentList?.title ?? t(store.locale, 'nav.lists');
+      viewSubtitle.textContent = currentList?.shared ? t(store.locale, 'list.sharedBadge') : '';
+      visibleTasks = currentList ? getListTasks(store.tasks, currentList.id) : [];
+    }
+
+    const suggestionsList = document.getElementById('suggestionsList') as HTMLUListElement;
+    suggestionsList.replaceChildren(...suggestions.map((item) => createTaskElement(item, true)));
+    (document.getElementById('suggestionsCount') as HTMLElement).textContent = String(suggestions.length);
+
+    const openTasks = visibleTasks.filter((item) => !item.completed);
+    const doneTasks = visibleTasks.filter((item) => item.completed);
+
+    const activeListEl = document.getElementById('activeTasksList') as HTMLUListElement;
+    activeListEl.replaceChildren(...openTasks.map((item) => createTaskElement(item)));
+
+    const emptyEl = document.getElementById('emptyStateText') as HTMLElement;
+    emptyEl.hidden = openTasks.length > 0;
+
+    const completedSection = document.getElementById('completedSection') as HTMLElement;
+    const completedListEl = document.getElementById('completedTasksList') as HTMLUListElement;
+    completedSection.hidden = doneTasks.length === 0;
+    (document.getElementById('completedCount') as HTMLElement).textContent = String(doneTasks.length);
+    completedListEl.replaceChildren(...doneTasks.map((item) => createTaskElement(item)));
+  }
+
+  function renderDetailSteps(task: TaskItem): void {
+    const stepsList = document.getElementById('detailStepsList') as HTMLUListElement;
+    stepsList.replaceChildren();
+    for (const step of task.steps) {
+      const li = document.createElement('li');
+      li.className = 'step-row';
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'btn-secondary';
+      toggleBtn.textContent = step.completed ? '✓' : '○';
+      toggleBtn.addEventListener('click', () => {
+        const updated = store.toggleTaskStep(task.id, step.id);
+        renderDetailSteps(updated);
+        render();
+      });
+
+      const title = document.createElement('span');
+      title.textContent = step.title;
+      if (step.completed) title.style.textDecoration = 'line-through';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn-ghost';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => {
+        const updated = store.deleteTaskStep(task.id, step.id);
+        renderDetailSteps(updated);
+        render();
+      });
+
+      li.append(toggleBtn, title, removeBtn);
+      stepsList.appendChild(li);
+    }
+  }
+
+  function openTaskDetail(taskId: string): void {
+    const task = store.tasks.find((item) => item.id === taskId && item.deletedAt === null);
+    if (!task) return;
+    editingTaskId = task.id;
+    const today = getLocalIsoDate();
+
+    (document.getElementById('detailTitleInput') as HTMLInputElement).value = task.title;
+    (document.getElementById('detailDueDateInput') as HTMLInputElement).value = task.dueDate ?? '';
+    (document.getElementById('detailReminderInput') as HTMLInputElement).value = task.reminderAt ?? '';
+    (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value = task.recurrence ?? '';
+    (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value = task.note;
+
+    const myDayBtn = document.getElementById('detailMyDayBtn') as HTMLButtonElement;
+    myDayBtn.textContent =
+      task.myDayDate === today
+        ? t(store.locale, 'myDay.removeFromMyDay')
+        : t(store.locale, 'myDay.addToMyDay');
+
+    const starBtn = document.getElementById('detailStarBtn') as HTMLButtonElement;
+    starBtn.textContent = `${task.starred ? '★' : '☆'} ${t(store.locale, 'nav.starred')}`;
+
+    renderDetailSteps(task);
+    taskDialog.showModal();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeView = btn.dataset.view as SmartViewId;
+      render();
+    });
+  });
+
+  document.getElementById('newListForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const input = document.getElementById('newListInput') as HTMLInputElement;
+    if (!input.value.trim()) return;
+    const created = store.addList(input.value);
+    input.value = '';
+    activeView = 'lists';
+    activeListId = created.id;
+    render();
+  });
+
+  const newTaskStarBtn = document.getElementById('newTaskStarBtn') as HTMLButtonElement;
+  newTaskStarBtn.addEventListener('click', () => {
+    quickAddStarred = !quickAddStarred;
+    newTaskStarBtn.setAttribute('aria-pressed', String(quickAddStarred));
+    newTaskStarBtn.textContent = quickAddStarred ? '★' : '☆';
+  });
+
+  document.getElementById('addTaskForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const titleInput = document.getElementById('newTaskTitle') as HTMLInputElement;
+    const dueInput = document.getElementById('newTaskDueDate') as HTMLInputElement;
+    if (!titleInput.value.trim()) return;
+
+    const targetListId =
+      activeView === 'lists' ? activeListId : (store.getActiveLists()[0]?.id ?? 'list-tasks');
+
+    store.addTask({
+      title: titleInput.value,
+      listId: targetListId,
+      starred: quickAddStarred || activeView === 'starred',
+      myDayDate: activeView === 'my-day' ? getLocalIsoDate() : null,
+      dueDate: dueInput.value || (activeView === 'planned' ? getLocalIsoDate() : null),
+    });
+
+    titleInput.value = '';
+    dueInput.value = '';
+    quickAddStarred = false;
+    newTaskStarBtn.setAttribute('aria-pressed', 'false');
+    newTaskStarBtn.textContent = '☆';
+    render();
+  });
+
+  document.getElementById('shareListBtn')?.addEventListener('click', async () => {
+    const { inviteUrl } = store.shareList(activeListId);
+    await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
+    showToast(`${t(store.locale, 'list.inviteCopied')}: ${inviteUrl}`);
+    render();
+  });
+
+  document.getElementById('langToggleBtn')?.addEventListener('click', () => {
+    store.setLocale(store.locale === 'de' ? 'en' : 'de');
+    render();
+  });
+
+  document.getElementById('detailMyDayBtn')?.addEventListener('click', () => {
+    if (!editingTaskId) return;
+    store.toggleTaskMyDay(editingTaskId, getLocalIsoDate());
+    openTaskDetail(editingTaskId);
+    render();
+  });
+
+  document.getElementById('detailStarBtn')?.addEventListener('click', () => {
+    if (!editingTaskId) return;
+    store.toggleTaskStarred(editingTaskId);
+    openTaskDetail(editingTaskId);
+    render();
+  });
+
+  document.getElementById('detailAddStepBtn')?.addEventListener('click', () => {
+    if (!editingTaskId) return;
+    const input = document.getElementById('detailNewStepInput') as HTMLInputElement;
+    if (!input.value.trim()) return;
+    const updated = store.addTaskStep(editingTaskId, input.value);
+    input.value = '';
+    renderDetailSteps(updated);
+    render();
+  });
+
+  document.getElementById('detailDeleteBtn')?.addEventListener('click', () => {
+    if (!editingTaskId) return;
+    store.deleteTask(editingTaskId);
+    editingTaskId = null;
+    void closeTopLayer(taskDialog);
+    render();
+  });
+
+  document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!editingTaskId) return;
+    const recurrenceVal = (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value;
+    store.updateTask(editingTaskId, {
+      title: (document.getElementById('detailTitleInput') as HTMLInputElement).value,
+      dueDate: (document.getElementById('detailDueDateInput') as HTMLInputElement).value || null,
+      reminderAt: (document.getElementById('detailReminderInput') as HTMLInputElement).value || null,
+      recurrence: (recurrenceVal || null) as RecurrencePattern | null,
+      note: (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value,
+    });
+    void closeTopLayer(taskDialog);
+    render();
+  });
+
+  document.getElementById('openImportBtn')?.addEventListener('click', () => {
+    (document.getElementById('importErrorText') as HTMLElement).hidden = true;
+    importDialog.showModal();
+  });
+
+  document.getElementById('importFileInput')?.addEventListener('change', async (event) => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    (document.getElementById('importJsonInput') as HTMLTextAreaElement).value = await file.text();
+  });
+
+  document.getElementById('loadSampleImportBtn')?.addEventListener('click', () => {
+    (document.getElementById('importJsonInput') as HTMLTextAreaElement).value = SAMPLE_WUNDERLIST_JSON;
+  });
+
+  document.getElementById('importForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const textarea = document.getElementById('importJsonInput') as HTMLTextAreaElement;
+    const errEl = document.getElementById('importErrorText') as HTMLElement;
+    try {
+      const stats = store.importJson(textarea.value);
+      errEl.hidden = true;
+      textarea.value = '';
+      void closeTopLayer(importDialog);
+      showToast(
+        `${t(store.locale, 'importer.success')}: +${stats.importedLists} / +${stats.importedTasks}`,
+      );
+      render();
+    } catch {
+      errEl.textContent = t(store.locale, 'importer.error');
+      errEl.hidden = false;
+    }
+  });
+
+  document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
+    (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
+    (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
+    (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked = store.soundEnabled;
+    (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
+    settingsDialog.showModal();
+  });
+
+  document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const errEl = document.getElementById('settingsErrorText') as HTMLElement;
+    try {
+      const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value as
+        | 'de'
+        | 'en';
+      const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
+      const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked;
+      store.setServerUrl(nextUrl);
+      store.setLocale(nextLocale);
+      store.setSoundEnabled(nextSound);
+      errEl.hidden = true;
+      void closeTopLayer(settingsDialog);
+      showToast(t(store.locale, 'toast.settingsSaved'));
+      render();
+    } catch {
+      errEl.textContent = t(store.locale, 'settings.serverUrlInvalid');
+      errEl.hidden = false;
+    }
+  });
+
+  window.addEventListener('online', render);
+  window.addEventListener('offline', render);
+
+  if ('serviceWorker' in navigator) {
+    void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+  }
+
+  render();
+}
+
+initApp();

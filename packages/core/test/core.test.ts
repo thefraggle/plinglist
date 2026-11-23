@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HlcClock,
   compareHlc,
+  computeNextDueDate,
   formatHlc,
   getListTasks,
   getMyDaySuggestions,
@@ -165,4 +166,13 @@ test('1-click importers preserve lists, steps, starred status, due dates, and no
   assert.equal(msImported.tasks[0].dueDate, '2026-11-30');
   assert.equal(msImported.tasks[0].note, 'Strom & Gas');
   assert.equal(msImported.tasks[0].steps[0].completed, true);
+});
+
+test('computeNextDueDate advances daily, weekly, weekdays, monthly and yearly cleanly', () => {
+  assert.equal(computeNextDueDate('2026-11-23', 'daily'), '2026-11-24');
+  assert.equal(computeNextDueDate('2026-11-23', 'weekly'), '2026-11-30');
+  // 2026-11-27 is Friday -> next weekday is Monday 2026-11-30
+  assert.equal(computeNextDueDate('2026-11-27', 'weekdays'), '2026-11-30');
+  assert.equal(computeNextDueDate('2026-11-23', 'monthly'), '2026-12-23');
+  assert.equal(computeNextDueDate('2026-11-23', 'yearly'), '2027-11-23');
 });

@@ -1,0 +1,10 @@
+{
+  "name": "Plinglist",
+  "short_name": "Plinglist",
+  "description": "Pling. Done. – The simple to-do list that stays.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#0d6b58",
+  "icons": []
+}

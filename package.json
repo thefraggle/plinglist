@@ -10,6 +10,8 @@
     "app"
   ],
   "scripts": {
+    "build": "node scripts/build-app.mjs",
+    "preview": "node scripts/build-app.mjs && npx -y serve app/dist -l 8080",
     "test": "node --test --experimental-strip-types packages/core/test/*.test.ts server/test/*.test.ts app/test/*.test.ts"
   },
   "engines": {

@@ -1,7 +1,47 @@
-import type { TaskItem } from './types.ts';
+import type { RecurrencePattern, TaskItem } from './types.ts';
 
 function isActive(task: TaskItem): boolean {
   return task.deletedAt === null;
+}
+
+/**
+ * Advances a YYYY-MM-DD date string deterministically in UTC according to the recurrence pattern.
+ */
+export function computeNextDueDate(
+  currentDueDate: string,
+  recurrence: RecurrencePattern,
+): string {
+  const match = currentDueDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    throw new Error(`Invalid ISO calendar date: ${currentDueDate}`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month, day));
+
+  switch (recurrence) {
+    case 'daily':
+      date.setUTCDate(date.getUTCDate() + 1);
+      break;
+    case 'weekly':
+      date.setUTCDate(date.getUTCDate() + 7);
+      break;
+    case 'weekdays': {
+      do {
+        date.setUTCDate(date.getUTCDate() + 1);
+      } while (date.getUTCDay() === 0 || date.getUTCDay() === 6);
+      break;
+    }
+    case 'monthly':
+      date.setUTCMonth(date.getUTCMonth() + 1);
+      break;
+    case 'yearly':
+      date.setUTCFullYear(date.getUTCFullYear() + 1);
+      break;
+  }
+
+  return date.toISOString().slice(0, 10);
 }
 
 /**
