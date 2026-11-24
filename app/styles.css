@@ -287,9 +287,57 @@ body {
 .sidebar-footer {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.45rem;
+  gap: 0.4rem;
   margin-top: auto;
   padding-top: 0.5rem;
+}
+
+.sidebar-footer-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.sidebar-legal-row,
+.settings-meta-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.link-inline {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-inline:hover {
+  color: var(--text-primary);
+}
+
+.info-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-block h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.legal-scroll-body {
+  max-height: min(68vh, 34rem);
+  overflow-y: auto;
 }
 
 .main-view {

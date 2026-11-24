@@ -12,6 +12,7 @@ import {
   type TaskItem,
 } from '../../packages/core/src/index.ts';
 import { CC0_CHIME_NOTES, CHIME_MASTER_GAIN } from './audio.ts';
+import { UMAMI_APP_WEBSITE_ID, UMAMI_SCRIPT_URL } from './config.ts';
 import { t, type TranslationKey } from './i18n.ts';
 import { PlinglistStore, getLocalIsoDate } from './store.ts';
 
@@ -307,6 +308,8 @@ function initApp(): void {
   const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
   const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
   const settingsDialog = document.getElementById('settingsDialog') as HTMLDialogElement;
+  const helpDialog = document.getElementById('helpDialog') as HTMLDialogElement;
+  const legalDialog = document.getElementById('legalDialog') as HTMLDialogElement;
   const confirmDeleteDialog = document.getElementById('confirmDeleteDialog') as HTMLDialogElement;
   [
     shareDialog,
@@ -314,8 +317,63 @@ function initApp(): void {
     taskDialog,
     importDialog,
     settingsDialog,
+    helpDialog,
+    legalDialog,
     confirmDeleteDialog,
   ].forEach(wireDialogLightDismiss);
+
+  let umamiInitialPageTracked = false;
+
+  function syncTelemetryRuntime(): void {
+    const existingScript = document.getElementById('plinglist-umami-script');
+    if (!store.isTelemetryActive()) {
+      existingScript?.remove();
+      try {
+        window.localStorage.setItem('umami.disabled', '1');
+      } catch {
+        // Ignore storage restrictions
+      }
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem('umami.disabled');
+    } catch {
+      // Ignore storage restrictions
+    }
+
+    const trackCleanPageview = (): void => {
+      if (umamiInitialPageTracked) return;
+      const umami = (window as { umami?: { track: (...args: unknown[]) => void } }).umami;
+      if (!umami) return;
+      umamiInitialPageTracked = true;
+      umami.track((props: Record<string, unknown>) => ({
+        ...props,
+        url: '/',
+        referrer: '',
+      }));
+    };
+
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.id = 'plinglist-umami-script';
+      script.async = true;
+      script.src = UMAMI_SCRIPT_URL;
+      script.dataset.websiteId = UMAMI_APP_WEBSITE_ID;
+      script.dataset.autoTrack = 'false';
+      script.addEventListener('load', trackCleanPageview, { once: true });
+      document.head.appendChild(script);
+    } else {
+      trackCleanPageview();
+    }
+  }
+
+  function trackDiagnostic(eventName: string): void {
+    if (!store.isTelemetryActive()) return;
+    const umami = (window as { umami?: { track: (...args: unknown[]) => void } }).umami;
+    if (!umami) return;
+    umami.track(eventName, { locale: store.locale });
+  }
   const firedReminderKeys = new Set<string>();
   let pendingDeleteAction: (() => void) | null = null;
 
@@ -408,6 +466,7 @@ function initApp(): void {
         if (!wasCompleted) {
           if (store.soundEnabled) playPlingChime();
           navigator.vibrate?.(15);
+          trackDiagnostic('task_completed');
           showToast(
             nextRecurringTask
               ? `${t(store.locale, 'toast.plingDone')} (${t(store.locale, 'toast.nextRecurring')})`
@@ -862,6 +921,7 @@ function initApp(): void {
     refreshShareDialogState(listId);
     render();
     void runSyncNow();
+    trackDiagnostic('list_shared');
     await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
     showToast(t(store.locale, 'list.inviteCopied'));
   });
@@ -985,6 +1045,7 @@ function initApp(): void {
       errEl.hidden = true;
       textarea.value = '';
       void closeTopLayer(importDialog);
+      trackDiagnostic('import_completed');
       showToast(
         `${t(store.locale, 'importer.success')}: +${stats.importedLists} / +${stats.importedTasks}`,
       );
@@ -1035,10 +1096,35 @@ function initApp(): void {
       store.preferences.autoHideEmptySmartLists;
     (document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement).checked =
       store.preferences.showAllSmartList;
+    const telemetrySupported = store.isTelemetrySupported();
+    const telemetryCheckbox = document.getElementById(
+      'settingsTelemetryCheckbox',
+    ) as HTMLInputElement;
+    telemetryCheckbox.checked = telemetrySupported && store.preferences.telemetryEnabled;
+    telemetryCheckbox.disabled = !telemetrySupported;
+    const telemetryHint = document.getElementById(
+      'settingsTelemetrySelfHostedHint',
+    ) as HTMLElement | null;
+    if (telemetryHint) telemetryHint.hidden = telemetrySupported;
     updateSyncLabels();
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
     settingsDialog.showModal();
   });
+
+  const openHelpModal = (): void => {
+    closeMobileDrawer();
+    if (settingsDialog.open) settingsDialog.close();
+    helpDialog.showModal();
+  };
+  const openLegalModal = (): void => {
+    closeMobileDrawer();
+    if (settingsDialog.open) settingsDialog.close();
+    legalDialog.showModal();
+  };
+  document.getElementById('openHelpBtn')?.addEventListener('click', openHelpModal);
+  document.getElementById('openSettingsHelpBtn')?.addEventListener('click', openHelpModal);
+  document.getElementById('openLegalBtn')?.addEventListener('click', openLegalModal);
+  document.getElementById('openSettingsLegalBtn')?.addEventListener('click', openLegalModal);
 
   document.getElementById('editSettingsSyncKeyBtn')?.addEventListener('click', () => {
     const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
@@ -1089,6 +1175,9 @@ function initApp(): void {
       showAllSmartList: (
         document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement
       ).checked,
+      telemetryEnabled:
+        store.isTelemetrySupported() &&
+        (document.getElementById('settingsTelemetryCheckbox') as HTMLInputElement).checked,
     };
 
     try {
@@ -1105,6 +1194,7 @@ function initApp(): void {
       store.setLocale(nextLocale);
       store.setSoundEnabled(nextSound);
       store.setPreferences(nextPrefs);
+      syncTelemetryRuntime();
       errEl.hidden = true;
       void closeTopLayer(settingsDialog);
       showToast(t(store.locale, 'toast.settingsSaved'));
@@ -1168,6 +1258,7 @@ function initApp(): void {
         window.history.replaceState({}, '', cleanUrl);
         await store.syncWithServer();
         hasSyncedOnce = true;
+        trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
         render();
       } catch {
@@ -1197,6 +1288,7 @@ function initApp(): void {
   }
 
   render();
+  syncTelemetryRuntime();
   checkDueReminders();
   void handleJoinParamOnStartup();
 }

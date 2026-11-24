@@ -11,7 +11,12 @@ import {
   type TaskItem,
   type TaskList,
 } from '../../packages/core/src/index.ts';
-import { DEFAULT_SERVER_URL, getDefaultServerUrl, normalizeServerUrl } from './config.ts';
+import {
+  DEFAULT_SERVER_URL,
+  getDefaultServerUrl,
+  isOfficialCloudOrigin,
+  normalizeServerUrl,
+} from './config.ts';
 import type { SupportedLocale } from './i18n.ts';
 
 export interface StorageLike {
@@ -26,6 +31,7 @@ export interface PlinglistPreferences {
   autoAddDueTodayToMyDay: boolean;
   autoHideEmptySmartLists: boolean;
   showAllSmartList: boolean;
+  telemetryEnabled: boolean;
 }
 
 export const DEFAULT_PREFERENCES: PlinglistPreferences = {
@@ -35,6 +41,7 @@ export const DEFAULT_PREFERENCES: PlinglistPreferences = {
   autoAddDueTodayToMyDay: true,
   autoHideEmptySmartLists: false,
   showAllSmartList: false,
+  telemetryEnabled: true,
 };
 
 interface PersistedState {
@@ -138,6 +145,9 @@ export class PlinglistStore {
     if (!loaded) {
       this.seedDefaults();
       this.persist();
+    }
+    if (!this.isTelemetrySupported()) {
+      this.preferences.telemetryEnabled = false;
     }
   }
 
@@ -728,8 +738,20 @@ export class PlinglistStore {
     this.persist();
   }
 
+  isTelemetrySupported(locationOrigin?: string): boolean {
+    return isOfficialCloudOrigin(locationOrigin);
+  }
+
+  isTelemetryActive(locationOrigin?: string): boolean {
+    return this.isTelemetrySupported(locationOrigin) && Boolean(this.preferences.telemetryEnabled);
+  }
+
   setPreferences(patch: Partial<PlinglistPreferences>): PlinglistPreferences {
-    this.preferences = { ...this.preferences, ...patch };
+    const next = { ...this.preferences, ...patch };
+    if (!this.isTelemetrySupported()) {
+      next.telemetryEnabled = false;
+    }
+    this.preferences = next;
     this.persist();
     return this.preferences;
   }

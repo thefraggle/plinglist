@@ -1,4 +1,23 @@
 export const DEFAULT_SERVER_URL = 'https://api.plinglist.app';
+export const UMAMI_SCRIPT_URL = 'https://telemetry.goork.de/analytics.js';
+export const UMAMI_APP_WEBSITE_ID = '6d1cc9ed-af01-4760-8f34-6e2c20a80f72';
+
+/**
+ * Diagnostic telemetry is strictly limited to the official hosted plinglist.app instance.
+ * Self-hosted deployments and localhost always keep telemetry disabled.
+ */
+export function isOfficialCloudOrigin(locationOrigin?: string): boolean {
+  const origin =
+    locationOrigin ??
+    (typeof globalThis.window !== 'undefined' ? globalThis.window.location?.origin : undefined);
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return parsed.hostname === 'plinglist.app' || parsed.hostname === 'www.plinglist.app';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Resolves the default sync server URL. In standard web/PWA contexts, defaults to

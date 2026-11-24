@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_SERVER_URL,
+  UMAMI_APP_WEBSITE_ID,
   getDefaultServerUrl,
+  isOfficialCloudOrigin,
   normalizeServerUrl,
 } from '../src/config.ts';
 import { TRANSLATIONS, t } from '../src/i18n.ts';
@@ -566,5 +568,45 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /data-settings-tab="sync"/);
   assert.match(html, /id="settingsSyncKeyInput"[^>]*readonly/);
   assert.match(html, /id="editSettingsSyncKeyBtn"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.11/);
+  assert.match(html, /id="helpDialog"/);
+  assert.match(html, /id="legalDialog"/);
+  assert.match(html, /id="settingsTelemetryCheckbox"/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.12/);
+  assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
+});
+
+test('telemetry is configurable on official cloud origin (plinglist.app) and permanently disabled on self-hosted origins', () => {
+  assert.equal(isOfficialCloudOrigin('https://plinglist.app'), true);
+  assert.equal(isOfficialCloudOrigin('https://www.plinglist.app'), true);
+  assert.equal(isOfficialCloudOrigin('http://localhost:3001'), false);
+  assert.equal(isOfficialCloudOrigin('https://todo.example.com'), false);
+
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  try {
+    (globalThis as { window?: { location?: { origin?: string } } }).window = {
+      location: { origin: 'https://todo.example.com' },
+    };
+    const selfHosted = new PlinglistStore({ storage: createMemoryStorage() });
+    assert.equal(selfHosted.isTelemetrySupported(), false);
+    assert.equal(selfHosted.isTelemetryActive(), false);
+    selfHosted.setPreferences({ telemetryEnabled: true });
+    assert.equal(selfHosted.preferences.telemetryEnabled, false);
+    assert.equal(selfHosted.isTelemetryActive(), false);
+
+    (globalThis as { window?: { location?: { origin?: string } } }).window = {
+      location: { origin: 'https://plinglist.app' },
+    };
+    const officialCloud = new PlinglistStore({ storage: createMemoryStorage() });
+    assert.equal(officialCloud.isTelemetrySupported(), true);
+    assert.equal(officialCloud.isTelemetryActive(), true);
+    officialCloud.setPreferences({ telemetryEnabled: false });
+    assert.equal(officialCloud.preferences.telemetryEnabled, false);
+    assert.equal(officialCloud.isTelemetryActive(), false);
+  } finally {
+    if (prevWindow === undefined) {
+      delete (globalThis as { window?: unknown }).window;
+    } else {
+      (globalThis as { window?: unknown }).window = prevWindow;
+    }
+  }
 });

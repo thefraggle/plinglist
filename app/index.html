@@ -88,9 +88,27 @@
         </div>
 
         <div class="sidebar-footer">
-          <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
-            Einstellungen
-          </button>
+          <div class="sidebar-footer-actions">
+            <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
+              Einstellungen
+            </button>
+            <button
+              type="button"
+              id="openHelpBtn"
+              class="btn-icon"
+              data-i18n-aria="help.openAria"
+              title="Hilfe &amp; Schnellstart"
+            >
+              ?
+            </button>
+          </div>
+          <div class="sidebar-legal-row">
+            <span>© 2026 Goork</span>
+            <span aria-hidden="true">·</span>
+            <button type="button" id="openLegalBtn" class="link-inline" data-i18n="legal.openLink">
+              Impressum &amp; Datenschutz
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -487,9 +505,21 @@
                 <input id="settingsConfirmDeleteCheckbox" type="checkbox" />
                 <span data-i18n="settings.confirmBeforeDelete"></span>
               </label>
+              <label class="checkbox-row">
+                <input id="settingsTelemetryCheckbox" type="checkbox" />
+                <span data-i18n="settings.telemetryEnabled"></span>
+              </label>
+              <small id="settingsTelemetrySelfHostedHint" class="field-hint" data-i18n="settings.telemetrySelfHostedHint" hidden></small>
             </div>
 
             <p class="field-hint" data-i18n="settings.aboutFooter"></p>
+            <div class="settings-meta-links">
+              <button type="button" id="openSettingsHelpBtn" class="link-inline" data-i18n="nav.help">Hilfe &amp; Tour</button>
+              <span aria-hidden="true">·</span>
+              <button type="button" id="openSettingsLegalBtn" class="link-inline" data-i18n="legal.openLink">Impressum &amp; Datenschutz</button>
+              <span aria-hidden="true">·</span>
+              <a href="https://github.com/thefraggle/plinglist" target="_blank" rel="noopener noreferrer" class="link-inline">GitHub (AGPLv3)</a>
+            </div>
           </section>
 
           <section class="settings-panel" data-settings-panel="lists" hidden>
@@ -555,6 +585,71 @@
             <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
         </form>
+      </div>
+    </dialog>
+
+    <!-- Help & Quickstart Modal -->
+    <dialog id="helpDialog" closedby="any" aria-labelledby="helpDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="helpDialogTitle" data-i18n="help.title">Hilfe &amp; Schnellstart</h2>
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="helpDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+        <div class="dialog-body legal-scroll-body">
+          <div class="info-block">
+            <h3 data-i18n="help.step1Title"></h3>
+            <p class="prose-note" data-i18n="help.step1Body"></p>
+          </div>
+          <div class="info-block">
+            <h3 data-i18n="help.step2Title"></h3>
+            <p class="prose-note" data-i18n="help.step2Body"></p>
+          </div>
+          <div class="info-block">
+            <h3 data-i18n="help.step3Title"></h3>
+            <p class="prose-note" data-i18n="help.step3Body"></p>
+          </div>
+          <div class="info-block">
+            <h3 data-i18n="help.step4Title"></h3>
+            <p class="prose-note" data-i18n="help.step4Body"></p>
+          </div>
+          <div class="sidebar-divider"></div>
+          <div class="info-block">
+            <h3 data-i18n="help.tipsTitle"></h3>
+            <p class="prose-note" data-i18n="help.tipsBody"></p>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Legal, Copyright & Privacy Modal -->
+    <dialog id="legalDialog" closedby="any" aria-labelledby="legalDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="legalDialogTitle" data-i18n="legal.title">Impressum, Lizenz &amp; Datenschutz</h2>
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="legalDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+        <div class="dialog-body legal-scroll-body">
+          <div class="info-block">
+            <h3 data-i18n="legal.imprintHeading"></h3>
+            <p class="prose-note" data-i18n="legal.imprintBody"></p>
+          </div>
+          <div class="sidebar-divider"></div>
+          <div class="info-block">
+            <h3 data-i18n="legal.copyrightHeading"></h3>
+            <p class="prose-note" data-i18n="legal.copyrightBody"></p>
+          </div>
+          <div class="sidebar-divider"></div>
+          <div class="info-block">
+            <h3 data-i18n="legal.privacyHeading"></h3>
+            <p class="prose-note" data-i18n="legal.privacyLocalBody"></p>
+            <p class="prose-note" data-i18n="legal.privacySyncBody"></p>
+            <p class="prose-note" data-i18n="legal.privacyTelemetryBody"></p>
+          </div>
+        </div>
       </div>
     </dialog>
 
