@@ -20,7 +20,7 @@
             <span class="brand-mark" aria-hidden="true">✓</span>
             <div class="brand-copy">
               <span class="brand-name">Plinglist</span>
-              <span class="brand-status" id="syncStatusText"></span>
+              <span class="brand-status" id="syncStatusText" hidden></span>
             </div>
           </div>
           <button type="button" id="closeSidebarBtn" class="btn-icon mobile-only" aria-label="Close">
@@ -36,19 +36,33 @@
             </span>
             <span class="nav-count" id="countMyDay">0</span>
           </button>
-          <button type="button" class="nav-item" data-view="starred">
+          <button type="button" id="navSmartStarred" class="nav-item" data-view="starred">
             <span class="nav-label-wrap">
               <span class="nav-glyph" aria-hidden="true">★</span>
               <span class="nav-label" data-i18n="nav.starred">Wichtig</span>
             </span>
             <span class="nav-count" id="countStarred">0</span>
           </button>
-          <button type="button" class="nav-item" data-view="planned">
+          <button type="button" id="navSmartPlanned" class="nav-item" data-view="planned">
             <span class="nav-label-wrap">
               <span class="nav-glyph" aria-hidden="true">◷</span>
               <span class="nav-label" data-i18n="nav.planned">Geplant</span>
             </span>
             <span class="nav-count" id="countPlanned">0</span>
+          </button>
+          <button type="button" id="navSmartAll" class="nav-item" data-view="all" hidden>
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">∞</span>
+              <span class="nav-label" data-i18n="nav.all">Alle</span>
+            </span>
+            <span class="nav-count" id="countAll">0</span>
+          </button>
+          <button type="button" id="navSmartTasks" class="nav-item" data-view="tasks">
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">⌂</span>
+              <span class="nav-label" data-i18n="nav.tasks">Aufgaben</span>
+            </span>
+            <span class="nav-count" id="countTasks">0</span>
           </button>
         </nav>
 
@@ -443,6 +457,39 @@
             <input id="settingsSoundCheckbox" type="checkbox" />
             <span data-i18n="settings.soundEnabled"></span>
           </label>
+          <label class="checkbox-row">
+            <input id="settingsAddNewOnTopCheckbox" type="checkbox" />
+            <span data-i18n="settings.addNewOnTop"></span>
+          </label>
+          <label class="checkbox-row">
+            <input id="settingsMoveStarredToTopCheckbox" type="checkbox" />
+            <span data-i18n="settings.moveStarredToTop"></span>
+          </label>
+          <label class="checkbox-row">
+            <input id="settingsConfirmDeleteCheckbox" type="checkbox" />
+            <span data-i18n="settings.confirmBeforeDelete"></span>
+          </label>
+          <label class="checkbox-row">
+            <input id="settingsAutoDueTodayCheckbox" type="checkbox" />
+            <span data-i18n="settings.autoAddDueToday"></span>
+          </label>
+          <label class="checkbox-row">
+            <input id="settingsAutoHideEmptyCheckbox" type="checkbox" />
+            <span data-i18n="settings.autoHideEmptySmart"></span>
+          </label>
+          <label class="checkbox-row">
+            <input id="settingsShowAllListCheckbox" type="checkbox" />
+            <span data-i18n="settings.showAllSmartList"></span>
+          </label>
+
+          <div class="sidebar-divider"></div>
+
+          <div class="sync-row">
+            <span id="settingsSyncStatusText" class="field-hint"></span>
+            <button type="button" id="manualSyncBtn" class="btn-secondary btn-compact" data-i18n="settings.syncNowBtn">
+              Jetzt synchronisieren
+            </button>
+          </div>
 
           <div class="sidebar-divider"></div>
 
@@ -453,12 +500,37 @@
             </button>
           </div>
 
+          <p class="field-hint" data-i18n="settings.aboutFooter"></p>
+
           <p id="settingsErrorText" class="error-text" hidden></p>
 
           <div class="dialog-footer">
             <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
         </form>
+      </div>
+    </dialog>
+
+    <!-- Delete Confirmation Modal -->
+    <dialog id="confirmDeleteDialog" closedby="any" aria-labelledby="confirmDeleteTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="confirmDeleteTitle" data-i18n="confirm.deleteTitle">Löschen bestätigen</h2>
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="confirmDeleteDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+        <div class="dialog-body">
+          <p id="confirmDeleteMessage" class="prose-note"></p>
+          <div class="dialog-footer">
+            <button type="button" class="btn-secondary btn-compact" data-close-dialog="confirmDeleteDialog" data-i18n="confirm.cancel">
+              Abbrechen
+            </button>
+            <button type="button" id="confirmDeleteSubmitBtn" class="btn-danger btn-compact" data-i18n="task.delete">
+              Löschen
+            </button>
+          </div>
+        </div>
       </div>
     </dialog>
 

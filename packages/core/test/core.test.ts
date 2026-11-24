@@ -5,6 +5,7 @@ import {
   compareHlc,
   computeNextDueDate,
   formatHlc,
+  getAllOpenTasks,
   getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
@@ -16,6 +17,7 @@ import {
   importWunderlistJson,
   mergeListLww,
   mergeTaskLww,
+  sortTasksForView,
   type TaskItem,
   type TaskList,
 } from '../src/index.ts';
@@ -268,4 +270,33 @@ test('getDueReminderTasks filters active uncompleted due reminders and respects 
 
   const firedKeys = new Set([`${dueTask.id}:${dueTask.reminderAt}`]);
   assert.deepEqual(getDueReminderTasks(tasks, nowMs, firedKeys), []);
+});
+
+test('getMyDayTasks includeDueToday, getAllOpenTasks, and sortTasksForView work cleanly', () => {
+  const dueTodayTask = makeTask({ id: 't-due-today', dueDate: '2026-11-24', starred: false });
+  const starredLater = makeTask({ id: 't-starred', dueDate: '2026-11-28', starred: true });
+  const doneStarred = makeTask({ id: 't-done-star', completed: true, starred: true });
+  const deletedTask = makeTask({ id: 't-del', deletedAt: '2026-11-24T08:00:00Z' });
+  const tasks = [dueTodayTask, starredLater, doneStarred, deletedTask];
+
+  assert.deepEqual(
+    getMyDayTasks(tasks, '2026-11-24', true).map((t) => t.id),
+    ['t-due-today'],
+  );
+  assert.deepEqual(
+    getMyDaySuggestions(tasks, '2026-11-24', true).map((t) => t.id),
+    [],
+  );
+  assert.deepEqual(
+    getAllOpenTasks(tasks).map((t) => t.id),
+    ['t-due-today', 't-starred'],
+  );
+  assert.deepEqual(
+    sortTasksForView([dueTodayTask, starredLater], true).map((t) => t.id),
+    ['t-starred', 't-due-today'],
+  );
+  assert.deepEqual(
+    sortTasksForView([dueTodayTask, starredLater], false).map((t) => t.id),
+    ['t-due-today', 't-starred'],
+  );
 });

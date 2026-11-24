@@ -45,27 +45,44 @@ export function computeNextDueDate(
 }
 
 /**
- * Midnight reset is implicit and timezone-safe: a task is in "My Day" only when
- * its myDayDate matches the user's current local calendar date (YYYY-MM-DD).
+ * Midnight reset is implicit and timezone-safe: a task is in "My Day" when
+ * its myDayDate matches the user's current local calendar date (YYYY-MM-DD),
+ * or optionally when its dueDate matches today.
  */
-export function isMyDayTask(task: TaskItem, todayIsoDate: string): boolean {
-  return isActive(task) && task.myDayDate === todayIsoDate;
+export function isMyDayTask(
+  task: TaskItem,
+  todayIsoDate: string,
+  includeDueToday = false,
+): boolean {
+  if (!isActive(task)) return false;
+  if (task.myDayDate === todayIsoDate) return true;
+  return includeDueToday && !task.completed && task.dueDate === todayIsoDate;
 }
 
-export function getMyDayTasks(tasks: TaskItem[], todayIsoDate: string): TaskItem[] {
-  return tasks.filter((task) => isMyDayTask(task, todayIsoDate));
+export function getMyDayTasks(
+  tasks: TaskItem[],
+  todayIsoDate: string,
+  includeDueToday = false,
+): TaskItem[] {
+  return tasks.filter((task) => isMyDayTask(task, todayIsoDate, includeDueToday));
 }
 
 /**
  * Smart suggestions for My Day: uncompleted active tasks not yet in today's My Day
- * that are overdue, due today, or rolled over from an earlier My Day date.
+ * that are overdue, due today (when not auto-included), or rolled over from an earlier My Day date.
  */
-export function getMyDaySuggestions(tasks: TaskItem[], todayIsoDate: string): TaskItem[] {
+export function getMyDaySuggestions(
+  tasks: TaskItem[],
+  todayIsoDate: string,
+  includeDueToday = false,
+): TaskItem[] {
   return tasks.filter((task) => {
-    if (!isActive(task) || task.completed || task.myDayDate === todayIsoDate) {
+    if (!isActive(task) || task.completed || isMyDayTask(task, todayIsoDate, includeDueToday)) {
       return false;
     }
-    const isDueOrOverdue = task.dueDate !== null && task.dueDate <= todayIsoDate;
+    const isDueOrOverdue =
+      task.dueDate !== null &&
+      (includeDueToday ? task.dueDate < todayIsoDate : task.dueDate <= todayIsoDate);
     const isFromPreviousMyDay = task.myDayDate !== null && task.myDayDate < todayIsoDate;
     return isDueOrOverdue || isFromPreviousMyDay;
   });
@@ -79,6 +96,26 @@ export function getPlannedTasks(tasks: TaskItem[]): TaskItem[] {
   return tasks
     .filter((task) => isActive(task) && !task.completed && task.dueDate !== null)
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
+}
+
+export function getAllOpenTasks(tasks: TaskItem[]): TaskItem[] {
+  return tasks.filter((task) => isActive(task) && !task.completed);
+}
+
+export function sortTasksForView(tasks: TaskItem[], moveStarredToTop: boolean): TaskItem[] {
+  if (!moveStarredToTop) {
+    return [...tasks];
+  }
+  const starred: TaskItem[] = [];
+  const rest: TaskItem[] = [];
+  for (const task of tasks) {
+    if (task.starred && !task.completed) {
+      starred.push(task);
+    } else {
+      rest.push(task);
+    }
+  }
+  return [...starred, ...rest];
 }
 
 export function getListTasks(tasks: TaskItem[], listId: string): TaskItem[] {

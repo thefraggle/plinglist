@@ -9,7 +9,7 @@ export type RecurrencePattern =
   | 'monthly'
   | 'yearly';
 
-export type SmartViewId = 'my-day' | 'starred' | 'planned' | 'lists';
+export type SmartViewId = 'my-day' | 'starred' | 'planned' | 'all' | 'tasks' | 'lists';
 
 export interface TaskStep {
   id: string;

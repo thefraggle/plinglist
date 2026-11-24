@@ -3,6 +3,7 @@
 
 # Closed-Source Cloud, Billing, Push & Brand Assets Repo (ssh://git@forgejo.goork.de:2222/thefraggle/plinglist-cloud.git)
 /cloud/
+app/public/
 
 # OS & IDE Files
 .DS_Store

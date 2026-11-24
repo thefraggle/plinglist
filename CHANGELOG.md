@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.9] - 2026-11-24
+
+### Added
+- **Microsoft To Do Settings Parity & Preferences (`app/src/store.ts`, `app/index.html`, `app/src/web-app.ts`):** Added persistent `PlinglistPreferences` (`addNewTasksOnTop`, `moveStarredToTop`, `confirmBeforeDelete`, `autoAddDueTodayToMyDay`, `autoHideEmptySmartLists`, `showAllSmartList`), native `#confirmDeleteDialog` before deleting tasks or lists, optional `∞ All / Alle` smart view, manual **Sync now / Jetzt synchronisieren** button with status in Settings, and a version/privacy footer.
+- **Core Selectors & Sorting (`packages/core/src/views.ts`):** Added `getAllOpenTasks()`, `sortTasksForView()` (starred-to-top), and `includeDueToday` support in `getMyDayTasks()` / `getMyDaySuggestions()`.
+- **Official Brand Audio (`cloud/assets/audio/pling.wav`):** Generated 16-bit 44.1 kHz harmonic two-note bell chime for the private brand overlay and added an overtone harmonic to the public CC0 Web Audio fallback.
+
+### Changed
+- **Clean Sidebar & System Inbox Placement (`app/index.html`, `app/src/web-app.ts`, `app/sw.js`):** Moved the system *Aufgaben / Tasks* inbox (`⌂`) above the sidebar divider alongside *My Day*, *Starred*, *Planned*, and *All*, leaving only custom user lists below the divider. Hid the redundant `"Synchronisiert"` text below the Plinglist brand header while online (displayed only when offline, and inside Settings). Service Worker bumped to `plinglist-app-v7`.
+
 ## [0.1.8] - 2026-11-24
 
 ### Fixed

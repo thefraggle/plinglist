@@ -461,3 +461,34 @@ test('pairing consolidates legacy list-tasks/list-groceries without duplicates a
     repo.close();
   }
 });
+
+test('PlinglistStore persists preferences, controls addTask insertion order, and excludes system list in getCustomLists', () => {
+  const storage = createMemoryStorage();
+  const store = new PlinglistStore({ storage, locale: 'de' });
+  const defaultId = store.getDefaultTasksListId();
+
+  assert.equal(
+    store.getCustomLists().some((l) => l.id === defaultId),
+    false,
+  );
+  assert.equal(store.getCustomLists().length, 1);
+
+  store.addTask({ title: 'First', listId: defaultId });
+  store.addTask({ title: 'SecondTop', listId: defaultId });
+  assert.deepEqual(
+    store.tasks.map((t) => t.title),
+    ['SecondTop', 'First'],
+  );
+
+  store.setPreferences({ addNewTasksOnTop: false, showAllSmartList: true });
+  store.addTask({ title: 'ThirdBottom', listId: defaultId });
+  assert.deepEqual(
+    store.tasks.map((t) => t.title),
+    ['SecondTop', 'First', 'ThirdBottom'],
+  );
+
+  const reloaded = new PlinglistStore({ storage });
+  assert.equal(reloaded.preferences.addNewTasksOnTop, false);
+  assert.equal(reloaded.preferences.showAllSmartList, true);
+  assert.equal(reloaded.preferences.moveStarredToTop, true);
+});

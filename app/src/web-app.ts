@@ -1,10 +1,12 @@
 import {
+  getAllOpenTasks,
   getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
   getMyDayTasks,
   getPlannedTasks,
   getStarredTasks,
+  sortTasksForView,
   type RecurrencePattern,
   type SmartViewId,
   type TaskItem,
@@ -97,16 +99,27 @@ function playSynthChime(ctx: AudioContext): void {
   let startTime = ctx.currentTime;
   for (const note of CC0_CHIME_NOTES) {
     const osc = ctx.createOscillator();
+    const harmonic = ctx.createOscillator();
     const gain = ctx.createGain();
+    const harmonicGain = ctx.createGain();
     osc.type = 'sine';
+    harmonic.type = 'triangle';
     osc.frequency.setValueAtTime(note.frequencyHz, startTime);
+    harmonic.frequency.setValueAtTime(note.frequencyHz * 2, startTime);
     gain.gain.setValueAtTime(0.001, startTime);
-    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.durationMs / 1000);
+    harmonicGain.gain.setValueAtTime(0.001, startTime);
+    harmonicGain.gain.exponentialRampToValueAtTime(note.gain * 0.25, startTime + 0.006);
+    harmonicGain.gain.exponentialRampToValueAtTime(0.0001, startTime + (note.durationMs * 0.65) / 1000);
     osc.connect(gain);
+    harmonic.connect(harmonicGain);
     gain.connect(ctx.destination);
+    harmonicGain.connect(ctx.destination);
     osc.start(startTime);
+    harmonic.start(startTime);
     osc.stop(startTime + note.durationMs / 1000);
+    harmonic.stop(startTime + note.durationMs / 1000);
     startTime += 0.055;
   }
 }
@@ -225,6 +238,25 @@ function initApp(): void {
     }
   });
 
+  function updateSyncLabels(): void {
+    const statusText = !navigator.onLine
+      ? t(store.locale, 'sync.offline')
+      : hasSyncedOnce
+        ? t(store.locale, 'sync.synced')
+        : t(store.locale, 'sync.localReady');
+
+    const syncLabel = document.getElementById('syncStatusText');
+    if (syncLabel) {
+      syncLabel.hidden = navigator.onLine;
+      syncLabel.textContent = statusText;
+    }
+
+    const settingsSyncLabel = document.getElementById('settingsSyncStatusText');
+    if (settingsSyncLabel) {
+      settingsSyncLabel.textContent = statusText;
+    }
+  }
+
   async function runSyncNow(): Promise<void> {
     if (!navigator.onLine || syncInFlight) return;
     syncInFlight = true;
@@ -235,10 +267,7 @@ function initApp(): void {
         if (result.pulledLists > 0 || result.pulledTasks > 0) {
           render();
         } else {
-          const syncLabel = document.getElementById('syncStatusText');
-          if (syncLabel) {
-            syncLabel.textContent = t(store.locale, 'sync.synced');
-          }
+          updateSyncLabels();
         }
       }
     } finally {
@@ -258,10 +287,34 @@ function initApp(): void {
   const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
   const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
   const settingsDialog = document.getElementById('settingsDialog') as HTMLDialogElement;
-  [shareDialog, renameListDialog, taskDialog, importDialog, settingsDialog].forEach(
-    wireDialogLightDismiss,
-  );
+  const confirmDeleteDialog = document.getElementById('confirmDeleteDialog') as HTMLDialogElement;
+  [
+    shareDialog,
+    renameListDialog,
+    taskDialog,
+    importDialog,
+    settingsDialog,
+    confirmDeleteDialog,
+  ].forEach(wireDialogLightDismiss);
   const firedReminderKeys = new Set<string>();
+  let pendingDeleteAction: (() => void) | null = null;
+
+  function requestDeleteConfirmation(message: string, onConfirm: () => void): void {
+    if (!store.preferences.confirmBeforeDelete) {
+      onConfirm();
+      return;
+    }
+    pendingDeleteAction = onConfirm;
+    (document.getElementById('confirmDeleteMessage') as HTMLElement).textContent = message;
+    confirmDeleteDialog.showModal();
+  }
+
+  document.getElementById('confirmDeleteSubmitBtn')?.addEventListener('click', () => {
+    const action = pendingDeleteAction;
+    pendingDeleteAction = null;
+    void closeTopLayer(confirmDeleteDialog);
+    action?.();
+  });
 
   document.querySelectorAll<HTMLButtonElement>('[data-close-dialog]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -302,16 +355,7 @@ function initApp(): void {
       el.title = label;
     });
 
-    const syncLabel = document.getElementById('syncStatusText');
-    if (syncLabel) {
-      if (!navigator.onLine) {
-        syncLabel.textContent = t(store.locale, 'sync.offline');
-      } else {
-        syncLabel.textContent = hasSyncedOnce
-          ? t(store.locale, 'sync.synced')
-          : t(store.locale, 'sync.localReady');
-      }
-    }
+    updateSyncLabels();
   }
 
   function createTaskElement(task: TaskItem, isSuggestion = false): HTMLLIElement {
@@ -399,20 +443,60 @@ function initApp(): void {
     applyTranslations();
     const today = getLocalIsoDate();
     const activeLists = store.getActiveLists();
-    if (!activeLists.some((l) => l.id === activeListId) && activeLists[0]) {
-      activeListId = activeLists[0].id;
+    const customLists = store.getCustomLists();
+    const defaultTasksId = store.getDefaultTasksListId();
+    if (!activeLists.some((l) => l.id === activeListId)) {
+      activeListId = customLists[0]?.id ?? defaultTasksId;
     }
 
-    const myDayItems = getMyDayTasks(store.tasks, today);
+    const myDayItems = getMyDayTasks(
+      store.tasks,
+      today,
+      store.preferences.autoAddDueTodayToMyDay,
+    );
     const starredItems = getStarredTasks(store.tasks);
     const plannedItems = getPlannedTasks(store.tasks);
-    const suggestions = getMyDaySuggestions(store.tasks, today);
+    const allItems = getAllOpenTasks(store.tasks);
+    const systemTasksItems = getListTasks(store.tasks, defaultTasksId);
+    const suggestions = getMyDaySuggestions(
+      store.tasks,
+      today,
+      store.preferences.autoAddDueTodayToMyDay,
+    );
+
+    const openStarredCount = starredItems.length;
+    const openPlannedCount = plannedItems.length;
+    const openAllCount = allItems.length;
+    const openSystemTasksCount = systemTasksItems.filter((item) => !item.completed).length;
 
     (document.getElementById('countMyDay') as HTMLElement).textContent = String(
       myDayItems.filter((item) => !item.completed).length,
     );
-    (document.getElementById('countStarred') as HTMLElement).textContent = String(starredItems.length);
-    (document.getElementById('countPlanned') as HTMLElement).textContent = String(plannedItems.length);
+    (document.getElementById('countStarred') as HTMLElement).textContent = String(openStarredCount);
+    (document.getElementById('countPlanned') as HTMLElement).textContent = String(openPlannedCount);
+    (document.getElementById('countAll') as HTMLElement).textContent = String(openAllCount);
+    (document.getElementById('countTasks') as HTMLElement).textContent = String(openSystemTasksCount);
+
+    const navStarred = document.getElementById('navSmartStarred') as HTMLButtonElement | null;
+    const navPlanned = document.getElementById('navSmartPlanned') as HTMLButtonElement | null;
+    const navAll = document.getElementById('navSmartAll') as HTMLButtonElement | null;
+    if (navStarred) {
+      navStarred.hidden =
+        store.preferences.autoHideEmptySmartLists &&
+        openStarredCount === 0 &&
+        activeView !== 'starred';
+    }
+    if (navPlanned) {
+      navPlanned.hidden =
+        store.preferences.autoHideEmptySmartLists &&
+        openPlannedCount === 0 &&
+        activeView !== 'planned';
+    }
+    if (navAll) {
+      const hiddenByPref = !store.preferences.showAllSmartList;
+      const hiddenByEmpty = store.preferences.autoHideEmptySmartLists && openAllCount === 0;
+      navAll.hidden = (hiddenByPref || hiddenByEmpty) && activeView !== 'all';
+    }
 
     document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
       const isCurrent = btn.dataset.view === activeView;
@@ -424,11 +508,14 @@ function initApp(): void {
       btn.setAttribute('aria-current', isCurrent ? 'page' : 'false');
     });
     const mobileListsBtn = document.getElementById('mobileListsBtn');
-    mobileListsBtn?.setAttribute('aria-current', activeView === 'lists' ? 'page' : 'false');
+    mobileListsBtn?.setAttribute(
+      'aria-current',
+      activeView === 'lists' || activeView === 'tasks' || activeView === 'all' ? 'page' : 'false',
+    );
 
     const listsNav = document.getElementById('customListsNav') as HTMLElement;
     listsNav.replaceChildren();
-    for (const list of activeLists) {
+    for (const list of customLists) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-item';
@@ -461,8 +548,8 @@ function initApp(): void {
     const viewSubtitle = document.getElementById('viewSubtitle') as HTMLElement;
     const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
     const currentList =
-      activeView === 'lists' ? activeLists.find((l) => l.id === activeListId) : undefined;
-    const isCustomList = Boolean(currentList && !store.isSystemTasksList(currentList.id));
+      activeView === 'lists' ? customLists.find((l) => l.id === activeListId) : undefined;
+    const isCustomList = Boolean(currentList);
     const renameListBtn = document.getElementById('renameListBtn') as HTMLButtonElement | null;
     const deleteListBtn = document.getElementById('deleteListBtn') as HTMLButtonElement | null;
     const shareListBtn = document.getElementById('shareListBtn') as HTMLButtonElement | null;
@@ -491,8 +578,15 @@ function initApp(): void {
       viewTitle.textContent = t(store.locale, 'nav.planned');
       viewSubtitle.textContent = '';
       visibleTasks = plannedItems;
+    } else if (activeView === 'all') {
+      viewTitle.textContent = t(store.locale, 'nav.all');
+      viewSubtitle.textContent = '';
+      visibleTasks = allItems;
+    } else if (activeView === 'tasks') {
+      viewTitle.textContent = t(store.locale, 'nav.tasks');
+      viewSubtitle.textContent = '';
+      visibleTasks = systemTasksItems;
     } else {
-      const currentList = activeLists.find((l) => l.id === activeListId);
       viewTitle.textContent = currentList?.title ?? t(store.locale, 'nav.lists');
       viewSubtitle.textContent = currentList?.shared ? t(store.locale, 'list.sharedBadge') : '';
       visibleTasks = currentList ? getListTasks(store.tasks, currentList.id) : [];
@@ -504,7 +598,10 @@ function initApp(): void {
       suggestions.length,
     );
 
-    const openTasks = visibleTasks.filter((item) => !item.completed);
+    const openTasks = sortTasksForView(
+      visibleTasks.filter((item) => !item.completed),
+      store.preferences.moveStarredToTop,
+    );
     const doneTasks = visibleTasks.filter((item) => item.completed);
 
     const activeListEl = document.getElementById('activeTasksList') as HTMLUListElement;
@@ -719,11 +816,13 @@ function initApp(): void {
     ) {
       return;
     }
-    store.deleteList(activeListId);
-    activeView = 'my-day';
-    activeListId = store.getDefaultTasksListId();
-    showToast(t(store.locale, 'list.deletedToast'));
-    render();
+    requestDeleteConfirmation(t(store.locale, 'confirm.deleteListPrompt'), () => {
+      store.deleteList(currentList.id);
+      activeView = 'my-day';
+      activeListId = store.getDefaultTasksListId();
+      showToast(t(store.locale, 'list.deletedToast'));
+      render();
+    });
   });
 
   document.getElementById('copySettingsPairUrlBtn')?.addEventListener('click', async () => {
@@ -806,10 +905,13 @@ function initApp(): void {
 
   document.getElementById('detailDeleteBtn')?.addEventListener('click', () => {
     if (!editingTaskId) return;
-    store.deleteTask(editingTaskId);
-    editingTaskId = null;
-    void closeTopLayer(taskDialog);
-    render();
+    const taskIdToDelete = editingTaskId;
+    requestDeleteConfirmation(t(store.locale, 'confirm.deleteTaskPrompt'), () => {
+      store.deleteTask(taskIdToDelete);
+      editingTaskId = null;
+      void closeTopLayer(taskDialog);
+      render();
+    });
   });
 
   document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
@@ -880,8 +982,32 @@ function initApp(): void {
     (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
     (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked =
       store.soundEnabled;
+    (document.getElementById('settingsAddNewOnTopCheckbox') as HTMLInputElement).checked =
+      store.preferences.addNewTasksOnTop;
+    (document.getElementById('settingsMoveStarredToTopCheckbox') as HTMLInputElement).checked =
+      store.preferences.moveStarredToTop;
+    (document.getElementById('settingsConfirmDeleteCheckbox') as HTMLInputElement).checked =
+      store.preferences.confirmBeforeDelete;
+    (document.getElementById('settingsAutoDueTodayCheckbox') as HTMLInputElement).checked =
+      store.preferences.autoAddDueTodayToMyDay;
+    (document.getElementById('settingsAutoHideEmptyCheckbox') as HTMLInputElement).checked =
+      store.preferences.autoHideEmptySmartLists;
+    (document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement).checked =
+      store.preferences.showAllSmartList;
+    updateSyncLabels();
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
     settingsDialog.showModal();
+  });
+
+  document.getElementById('manualSyncBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('manualSyncBtn') as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
+    try {
+      await runSyncNow();
+      updateSyncLabels();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   });
 
   document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
@@ -893,6 +1019,26 @@ function initApp(): void {
     const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
     const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement)
       .checked;
+    const nextPrefs = {
+      addNewTasksOnTop: (
+        document.getElementById('settingsAddNewOnTopCheckbox') as HTMLInputElement
+      ).checked,
+      moveStarredToTop: (
+        document.getElementById('settingsMoveStarredToTopCheckbox') as HTMLInputElement
+      ).checked,
+      confirmBeforeDelete: (
+        document.getElementById('settingsConfirmDeleteCheckbox') as HTMLInputElement
+      ).checked,
+      autoAddDueTodayToMyDay: (
+        document.getElementById('settingsAutoDueTodayCheckbox') as HTMLInputElement
+      ).checked,
+      autoHideEmptySmartLists: (
+        document.getElementById('settingsAutoHideEmptyCheckbox') as HTMLInputElement
+      ).checked,
+      showAllSmartList: (
+        document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement
+      ).checked,
+    };
 
     try {
       store.setSyncKey(nextSyncKey);
@@ -906,6 +1052,7 @@ function initApp(): void {
       store.setServerUrl(nextUrl);
       store.setLocale(nextLocale);
       store.setSoundEnabled(nextSound);
+      store.setPreferences(nextPrefs);
       errEl.hidden = true;
       void closeTopLayer(settingsDialog);
       showToast(t(store.locale, 'toast.settingsSaved'));

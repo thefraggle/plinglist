@@ -19,6 +19,24 @@ export interface StorageLike {
   setItem(key: string, value: string): void;
 }
 
+export interface PlinglistPreferences {
+  addNewTasksOnTop: boolean;
+  moveStarredToTop: boolean;
+  confirmBeforeDelete: boolean;
+  autoAddDueTodayToMyDay: boolean;
+  autoHideEmptySmartLists: boolean;
+  showAllSmartList: boolean;
+}
+
+export const DEFAULT_PREFERENCES: PlinglistPreferences = {
+  addNewTasksOnTop: true,
+  moveStarredToTop: true,
+  confirmBeforeDelete: true,
+  autoAddDueTodayToMyDay: true,
+  autoHideEmptySmartLists: false,
+  showAllSmartList: false,
+};
+
 interface PersistedState {
   version: 1;
   userId?: string;
@@ -27,6 +45,7 @@ interface PersistedState {
   locale: SupportedLocale;
   serverUrl: string;
   soundEnabled: boolean;
+  preferences?: Partial<PlinglistPreferences>;
   lists: TaskList[];
   tasks: TaskItem[];
 }
@@ -92,6 +111,7 @@ export class PlinglistStore {
   locale: SupportedLocale = 'de';
   serverUrl: string = getDefaultServerUrl();
   soundEnabled = true;
+  preferences: PlinglistPreferences = { ...DEFAULT_PREFERENCES };
 
   constructor(options?: {
     storage?: StorageLike | null;
@@ -251,6 +271,7 @@ export class PlinglistStore {
         ? normalizeServerUrl(parsed.serverUrl)
         : getDefaultServerUrl();
       this.soundEnabled = parsed.soundEnabled !== false;
+      this.preferences = { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) };
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
       for (const list of this.lists) {
@@ -278,6 +299,7 @@ export class PlinglistStore {
         locale: this.locale,
         serverUrl: this.serverUrl,
         soundEnabled: this.soundEnabled,
+        preferences: this.preferences,
         lists: this.lists,
         tasks: this.tasks,
       };
@@ -298,6 +320,10 @@ export class PlinglistStore {
 
   getActiveLists(): TaskList[] {
     return this.lists.filter((list) => list.deletedAt === null);
+  }
+
+  getCustomLists(): TaskList[] {
+    return this.getActiveLists().filter((list) => !this.isSystemTasksList(list.id));
   }
 
   addList(title: string): TaskList {
@@ -460,7 +486,11 @@ export class PlinglistStore {
         deletedAt: hlc,
       },
     };
-    this.tasks.unshift(task);
+    if (this.preferences.addNewTasksOnTop) {
+      this.tasks.unshift(task);
+    } else {
+      this.tasks.push(task);
+    }
     this.persist();
     return task;
   }
@@ -689,6 +719,12 @@ export class PlinglistStore {
   setSoundEnabled(enabled: boolean): void {
     this.soundEnabled = enabled;
     this.persist();
+  }
+
+  setPreferences(patch: Partial<PlinglistPreferences>): PlinglistPreferences {
+    this.preferences = { ...this.preferences, ...patch };
+    this.persist();
+    return this.preferences;
   }
 
   setSyncKey(nextSyncKey: string): string {
