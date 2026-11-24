@@ -79,14 +79,26 @@ function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createInviteToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return `inv-${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  }
+  const fallback = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.padEnd(
+    24,
+    '0',
+  );
+  return `inv-${fallback.slice(0, 24)}`;
+}
+
 export function generateSyncKey(): string {
-  const segment = (): string => {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {
-      return globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 4);
-    }
-    return Math.random().toString(36).slice(2, 6).padEnd(4, '0');
-  };
-  return `pling-${segment()}-${segment()}-${segment()}`;
+  const raw =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID().replace(/-/g, '')
+      : `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.padEnd(
+          24,
+          '0',
+        );
+  return `pling-${raw.slice(0, 6)}-${raw.slice(6, 12)}-${raw.slice(12, 18)}-${raw.slice(18, 24)}`;
 }
 
 export function deriveWorkspaceSuffix(syncKey: string): string {
@@ -123,6 +135,7 @@ export class PlinglistStore {
   serverUrl: string = getDefaultServerUrl();
   soundEnabled = true;
   preferences: PlinglistPreferences = { ...DEFAULT_PREFERENCES };
+  lastStorageError: string | null = null;
 
   constructor(options?: {
     storage?: StorageLike | null;
@@ -324,7 +337,13 @@ export class PlinglistStore {
         lists: this.lists,
         tasks: this.tasks,
       };
-      this.storage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      try {
+        this.storage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        this.lastStorageError = null;
+      } catch (err) {
+        this.lastStorageError =
+          err instanceof Error ? err.message : 'STORAGE_WRITE_FAILED';
+      }
     }
     if (!fromRemoteSync) {
       this.onLocalMutation?.();
@@ -462,7 +481,7 @@ export class PlinglistStore {
       throw new Error(`List not found: ${listId}`);
     }
     list.shared = true;
-    list.inviteToken = list.inviteToken ?? createId('inv');
+    list.inviteToken = list.inviteToken ?? createInviteToken();
     list.updatedAt = new Date().toISOString();
     list.hlc = this.clock.now();
     this.persist();
@@ -734,9 +753,14 @@ export class PlinglistStore {
       result = importMicrosoftToDoCsv(trimmed, hlc);
     }
 
+    const suffix = deriveWorkspaceSuffix(this.syncKey);
     const existingListIds = new Set(this.lists.map((l) => l.id));
     let importedLists = 0;
-    for (const list of result.lists) {
+    for (const rawList of result.lists) {
+      const list: TaskList = {
+        ...rawList,
+        id: `${rawList.id}-${suffix}`,
+      };
       if (!existingListIds.has(list.id)) {
         this.lists.push(list);
         existingListIds.add(list.id);
@@ -746,7 +770,12 @@ export class PlinglistStore {
 
     const existingTasksById = new Map(this.tasks.map((task) => [task.id, task]));
     let importedTasks = 0;
-    for (const task of result.tasks) {
+    for (const rawTask of result.tasks) {
+      const task: TaskItem = {
+        ...rawTask,
+        id: `${rawTask.id}-${suffix}`,
+        listId: `${rawTask.listId}-${suffix}`,
+      };
       const existing = existingTasksById.get(task.id);
       if (existing) {
         const merged = mergeTaskLww(existing, task);

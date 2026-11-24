@@ -219,6 +219,23 @@ export class SqliteSyncRepository implements SyncRepository {
 
         const taskRow = selectTaskStmt.get(incomingTask.id) as { payload_json: string } | undefined;
         const existingTask = taskRow ? (JSON.parse(taskRow.payload_json) as TaskItem) : null;
+        if (existingTask && existingTask.listId !== incomingTask.listId) {
+          const existingListRow = selectListStmt.get(existingTask.listId) as
+            | StoredListRow
+            | undefined;
+          if (
+            !existingListRow ||
+            !this.isListRowAuthorized(
+              existingListRow,
+              callerKey,
+              callerUserId,
+              existingTask.listId,
+              request.inviteTokens,
+            )
+          ) {
+            continue;
+          }
+        }
         const merged = existingTask ? mergeTaskLww(existingTask, incomingTask) : { ...incomingTask };
         const mergedJsonBeforeWatermark = JSON.stringify(merged);
         const changed = !taskRow || mergedJsonBeforeWatermark !== taskRow.payload_json;

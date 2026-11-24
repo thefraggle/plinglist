@@ -230,6 +230,19 @@ export class InMemorySyncRepository implements SyncRepository {
         continue;
       }
       const existing = this.tasksById.get(incoming.id);
+      if (existing && existing.listId !== incoming.listId) {
+        if (
+          !this.listsById.has(existing.listId) ||
+          !this.isAuthorizedForList(
+            existing.listId,
+            callerKey,
+            callerUserId,
+            request.inviteTokens,
+          )
+        ) {
+          continue;
+        }
+      }
       const merged = existing ? mergeTaskLww(existing, incoming) : { ...incoming };
       const changed = !existing || JSON.stringify(merged) !== JSON.stringify(existing);
       if (changed) {

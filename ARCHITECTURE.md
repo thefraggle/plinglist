@@ -93,13 +93,13 @@ PRAGMA busy_timeout = 5000;
 | Method & Path | Purpose | Notes |
 | :--- | :--- | :--- |
 | `GET /api/health` | Liveness & healthcheck | Returns `{ status: "ok", service: "plinglist-app", cloudExtensionEnabled }` |
-| `POST /api/v1/sync` | Idempotent HLC delta push & pull | Merges `clientLists` & `clientTasks`, returns deltas newer than `sinceHlc` + new `cursorHlc` (returns `403 PRO_ENTITLEMENT_REQUIRED` when `CLOUD_ENFORCE_ENTITLEMENTS=true` without active entitlement) |
+| `POST /api/v1/sync` | Idempotent HLC delta push & pull | Validates payload schema/bounds, enforces source/target list ownership on task moves, rate-limited (240 req/min/IP), returns `403 PRO_ENTITLEMENT_REQUIRED` when `CLOUD_ENFORCE_ENTITLEMENTS=true` without active entitlement |
 | `DELETE /api/v1/sync` | GDPR workspace erasure | Deletes all lists owned by `syncKey` / `userId`, their tasks, and entitlements, returning `{ ok: true, deletedLists }` |
-| `POST /api/v1/invites/:token/join` | Resolve shared list invite | Returns `{ list }` or `404 INVITE_NOT_FOUND` |
+| `POST /api/v1/invites/:token/join` | Resolve shared list invite | Rate-limited (60 req/min/IP); returns `{ list }` or `404 INVITE_NOT_FOUND` |
 | `GET /join/:token` | Browser invite entry | `302` redirect to `${PUBLIC_BASE_URL}/?join=<token>` |
-| `POST /api/v1/cloud/webhooks/stripe` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists Stripe `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
-| `POST /api/v1/cloud/webhooks/revenuecat` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists RevenueCat `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
-| `GET /` & static assets | App shell & static delivery | Sets `Cache-Control: no-cache` for `.html`/`sw.js`/`.webmanifest`, `max-age=3600` for assets, and real `404` HTML/JSON responses for unknown routes or missing files |
+| `POST /api/v1/cloud/webhooks/stripe` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies required `Bearer ${CLOUD_WEBHOOK_SECRET}` via `crypto.timingSafeEqual` (fail-closed), persists Stripe `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
+| `POST /api/v1/cloud/webhooks/revenuecat` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies required `Bearer ${CLOUD_WEBHOOK_SECRET}` via `crypto.timingSafeEqual` (fail-closed), persists RevenueCat `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
+| `GET /` & static assets | App shell & static delivery | Sets `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`, `Cache-Control`, and real `404` HTML/JSON responses |
 | `OPTIONS /api/*` | CORS preflight | Returns `204` with `Access-Control-Allow-Origin: *` (`GET, POST, DELETE, OPTIONS`) |
 
 ---

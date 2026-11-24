@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.18] - 2026-11-24
+
+### Security
+- **Cross-Workspace Task Ownership & Isolated Imports (`server/src/sqlite-repo.ts`, `server/src/sync-engine.ts`, `app/src/store.ts`):** Blocked cross-workspace `tasks.id` hijacking/moves unless the caller is authorized for both source and target list, and namespaced deterministic Wunderlist/MS To Do importer IDs per workspace suffix while staying idempotent within the same workspace.
+- **High-Entropy Capability Tokens (`app/src/store.ts`):** Upgraded `generateSyncKey()` (`pling-xxxxxx-xxxxxx-xxxxxx-xxxxxx`) and `createInviteToken()` (`inv-<24-hex>`) to 96-bit cryptographic entropy.
+- **Fail-Closed Webhooks, Payload Validation, Rate Limiting & Security Headers (`server/src/index.ts`, `server/.env.example`):** Required non-empty `CLOUD_WEBHOOK_SECRET` with `crypto.timingSafeEqual`, validated `POST/DELETE /api/v1/sync` runtime payload schemas/bounds, added per-IP rate limiting for `/api/v1/sync` and `/api/v1/invites/*`, and enforced `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Content-Security-Policy` headers.
+- **`localStorage` Quota Resilience (`app/src/store.ts`):** Wrapped `localStorage.setItem` in `persist()` with error capture (`lastStorageError`) so `QuotaExceededError` or private browsing blocks do not crash in-memory updates.
+
 ## [0.1.17] - 2026-11-24
 
 ### Changed

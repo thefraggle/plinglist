@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -23,6 +24,14 @@ const MIME_TYPES: Record<string, string> = {
   '.wav': 'audio/wav',
 };
 
+const SECURITY_HEADERS: Record<string, string> = {
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' https://stats.goork.de; connect-src 'self' https: http:; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+};
+
 const API_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
@@ -32,11 +41,124 @@ const API_CORS_HEADERS = {
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
+    ...SECURITY_HEADERS,
     ...API_CORS_HEADERS,
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
   });
   res.end(body);
+}
+
+function isValidBearerSecret(
+  authHeader: string | undefined,
+  expectedSecret: string | undefined,
+): boolean {
+  const expected = expectedSecret?.trim();
+  if (!expected || !authHeader) {
+    return false;
+  }
+  const actualBuf = Buffer.from(authHeader, 'utf8');
+  const expectedBuf = Buffer.from(`Bearer ${expected}`, 'utf8');
+  if (actualBuf.length !== expectedBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(actualBuf, expectedBuf);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateSyncRequest(raw: unknown): SyncRequest {
+  if (!isPlainObject(raw)) {
+    throw new Error('Sync request body must be a JSON object');
+  }
+  if (typeof raw.userId !== 'string' || !raw.userId.trim() || raw.userId.length > 128) {
+    throw new Error('userId must be a non-empty string');
+  }
+  if (raw.syncKey !== undefined && (typeof raw.syncKey !== 'string' || raw.syncKey.length > 256)) {
+    throw new Error('syncKey must be a string');
+  }
+  if (raw.sinceHlc !== undefined && raw.sinceHlc !== null && typeof raw.sinceHlc !== 'string') {
+    throw new Error('sinceHlc must be a string or null');
+  }
+  if (raw.inviteTokens !== undefined) {
+    if (!isPlainObject(raw.inviteTokens)) {
+      throw new Error('inviteTokens must be an object');
+    }
+    const entries = Object.entries(raw.inviteTokens);
+    if (entries.length > 500) {
+      throw new Error('Too many inviteTokens');
+    }
+    for (const [k, v] of entries) {
+      if (typeof k !== 'string' || typeof v !== 'string') {
+        throw new Error('inviteTokens entries must be strings');
+      }
+    }
+  }
+  if (!Array.isArray(raw.listIds) || raw.listIds.length > 1000) {
+    throw new Error('listIds must be an array');
+  }
+  for (const id of raw.listIds) {
+    if (typeof id !== 'string' || id.length > 256) {
+      throw new Error('listIds elements must be strings');
+    }
+  }
+  if (raw.clientLists !== undefined) {
+    if (!Array.isArray(raw.clientLists) || raw.clientLists.length > 1000) {
+      throw new Error('clientLists must be an array');
+    }
+    for (const list of raw.clientLists) {
+      if (!isPlainObject(list) || typeof list.id !== 'string' || typeof list.hlc !== 'string') {
+        throw new Error('clientLists entries must have string id and hlc');
+      }
+    }
+  }
+  if (!Array.isArray(raw.clientTasks) || raw.clientTasks.length > 5000) {
+    throw new Error('clientTasks must be an array');
+  }
+  for (const task of raw.clientTasks) {
+    if (
+      !isPlainObject(task) ||
+      typeof task.id !== 'string' ||
+      typeof task.listId !== 'string' ||
+      typeof task.hlc !== 'string'
+    ) {
+      throw new Error('clientTasks entries must have string id, listId, and hlc');
+    }
+  }
+  return raw as unknown as SyncRequest;
+}
+
+function createFixedWindowRateLimiter(windowMs: number, maxRequests: number) {
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+  return (key: string, now = Date.now()): boolean => {
+    if (buckets.size > 10_000) {
+      for (const [k, entry] of buckets.entries()) {
+        if (entry.resetAt <= now) {
+          buckets.delete(k);
+        }
+      }
+    }
+    const existing = buckets.get(key);
+    if (!existing || existing.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    if (existing.count >= maxRequests) {
+      return false;
+    }
+    existing.count += 1;
+    return true;
+  };
+}
+
+function getClientIp(req: IncomingMessage): string {
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress ?? 'unknown';
 }
 
 async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
@@ -119,13 +241,17 @@ export function createServerApp(
   repo: SyncRepository = new InMemorySyncRepository(),
   distDir = path.resolve(import.meta.dirname, '..', '..', 'app', 'dist'),
 ): http.Server {
+  const syncRateLimiter = createFixedWindowRateLimiter(60_000, 240);
+  const inviteRateLimiter = createFixedWindowRateLimiter(60_000, 60);
+
   return http.createServer(async (req, res) => {
     const method = req.method ?? 'GET';
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    const clientIp = getClientIp(req);
 
     if (method === 'OPTIONS' && pathname.startsWith('/api/')) {
-      res.writeHead(204, API_CORS_HEADERS);
+      res.writeHead(204, { ...SECURITY_HEADERS, ...API_CORS_HEADERS });
       res.end();
       return;
     }
@@ -140,8 +266,13 @@ export function createServerApp(
     }
 
     if (method === 'POST' && pathname === '/api/v1/sync') {
+      if (!syncRateLimiter(clientIp)) {
+        sendJson(res, 429, { error: 'RATE_LIMIT_EXCEEDED' });
+        return;
+      }
       try {
-        const body = await readJsonBody<SyncRequest>(req);
+        const rawBody = await readJsonBody<unknown>(req);
+        const body = validateSyncRequest(rawBody);
         const result = await repo.applyAndPullDeltas(body);
         sendJson(res, 200, result);
       } catch (err) {
@@ -158,10 +289,23 @@ export function createServerApp(
     }
 
     if (method === 'DELETE' && pathname === '/api/v1/sync') {
+      if (!syncRateLimiter(clientIp)) {
+        sendJson(res, 429, { error: 'RATE_LIMIT_EXCEEDED' });
+        return;
+      }
       try {
-        const body = await readJsonBody<{ userId?: string; syncKey?: string }>(req);
-        const callerUserId = body.userId?.trim() || '';
-        const callerKey = body.syncKey?.trim() || callerUserId;
+        const body = await readJsonBody<unknown>(req);
+        if (
+          !isPlainObject(body) ||
+          (body.userId !== undefined && typeof body.userId !== 'string') ||
+          (body.syncKey !== undefined && typeof body.syncKey !== 'string')
+        ) {
+          sendJson(res, 400, { error: 'INVALID_DELETE_REQUEST' });
+          return;
+        }
+        const callerUserId = typeof body.userId === 'string' ? body.userId.trim() : '';
+        const callerKey =
+          (typeof body.syncKey === 'string' ? body.syncKey.trim() : '') || callerUserId;
         if (!callerKey) {
           sendJson(res, 400, { error: 'MISSING_WORKSPACE_KEY' });
           return;
@@ -179,10 +323,7 @@ export function createServerApp(
 
     const webhookMatch = pathname.match(/^\/api\/v1\/cloud\/webhooks\/(stripe|revenuecat)$/);
     if (config.cloudExtensionEnabled && method === 'POST' && webhookMatch) {
-      if (
-        config.cloudWebhookSecret &&
-        req.headers.authorization !== `Bearer ${config.cloudWebhookSecret}`
-      ) {
+      if (!isValidBearerSecret(req.headers.authorization, config.cloudWebhookSecret)) {
         sendJson(res, 401, { error: 'UNAUTHORIZED_WEBHOOK' });
         return;
       }
@@ -203,6 +344,10 @@ export function createServerApp(
 
     const inviteApiMatch = pathname.match(/^\/api\/v1\/invites\/([^/]+?)(?:\/join)?$/);
     if (inviteApiMatch && (method === 'POST' || method === 'GET')) {
+      if (!inviteRateLimiter(clientIp)) {
+        sendJson(res, 429, { error: 'RATE_LIMIT_EXCEEDED' });
+        return;
+      }
       const token = decodeURIComponent(inviteApiMatch[1]);
       const list = await repo.resolveInviteToken?.(token);
       if (!list) {
@@ -217,6 +362,7 @@ export function createServerApp(
     if (joinPageMatch && method === 'GET') {
       const token = decodeURIComponent(joinPageMatch[1]);
       res.writeHead(302, {
+        ...SECURITY_HEADERS,
         Location: `${config.publicBaseUrl}/?join=${encodeURIComponent(token)}`,
       });
       res.end();
@@ -240,6 +386,7 @@ export function createServerApp(
         const isMutableEntry =
           ext === '.html' || path.basename(targetFile) === 'sw.js' || ext === '.webmanifest';
         res.writeHead(200, {
+          ...SECURITY_HEADERS,
           'Content-Type': contentType,
           'Cache-Control': isMutableEntry ? 'no-cache' : 'public, max-age=3600',
         });
@@ -269,6 +416,7 @@ export function createServerApp(
         '</main></body></html>',
       ].join('');
       res.writeHead(404, {
+        ...SECURITY_HEADERS,
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
       });

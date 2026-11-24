@@ -12,7 +12,7 @@ import {
 } from '../src/config.ts';
 import { TRANSLATIONS, t } from '../src/i18n.ts';
 import { CHIME_MASTER_GAIN, resolveCompletionSoundSource } from '../src/audio.ts';
-import { PlinglistStore, type StorageLike } from '../src/store.ts';
+import { PlinglistStore, generateSyncKey, type StorageLike } from '../src/store.ts';
 
 function createMemoryStorage(): StorageLike {
   const map = new Map<string, string>();
@@ -580,7 +580,7 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="taskSearchInput"/);
   assert.match(html, /id="detailListSelect"/);
   assert.match(html, /role="tabpanel"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.17/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.18/);
   assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
 });
 
@@ -685,6 +685,85 @@ test('deleteTask/deleteList scrub personal data from tombstones, syncEnabled dis
     assert.equal(deleted, true);
     assert.notEqual(store.syncKey, prevKey);
     assert.equal(store.tasks.length, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
+
+test('high-entropy syncKey/inviteToken, isolated workspace imports, and localStorage quota error resilience', async () => {
+  const key = generateSyncKey();
+  assert.match(key, /^pling-[a-z0-9]{6}-[a-z0-9]{6}-[a-z0-9]{6}-[a-z0-9]{6}$/);
+
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    const store1 = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+    });
+    const list1 = store1.addList('Shared Project');
+    const { list: shared } = store1.shareList(list1.id);
+    assert.match(shared.inviteToken ?? '', /^inv-[a-z0-9]{24,}$/);
+
+    const store2 = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+    });
+
+    const csv = 'Betreff;Liste;Erledigt;Priorität\nSteuererklärung;Finanzen;nein;hoch';
+    const res1 = store1.importJson(csv);
+    const res2 = store2.importJson(csv);
+    assert.equal(res1.importedLists, 1);
+    assert.equal(res1.importedTasks, 1);
+    assert.equal(res2.importedLists, 1);
+    assert.equal(res2.importedTasks, 1);
+
+    const list1Imported = store1.lists.find((l) => l.title === 'Finanzen')!;
+    const list2Imported = store2.lists.find((l) => l.title === 'Finanzen')!;
+    assert.notEqual(list1Imported.id, list2Imported.id);
+    assert.notEqual(store1.tasks[0].id, store2.tasks[0].id);
+
+    // Re-importing same CSV within the same workspace remains idempotent
+    const reimport = store1.importJson(csv);
+    assert.equal(reimport.importedLists, 0);
+    assert.equal(reimport.importedTasks, 0);
+
+    // Both workspaces sync independently to the same server without colliding
+    assert.equal((await store1.syncWithServer()).synced, true);
+    assert.equal((await store2.syncWithServer()).synced, true);
+
+    // QuotaExceededError resilience
+    const failingStorage: StorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        const err = new Error('Storage quota exceeded');
+        err.name = 'QuotaExceededError';
+        throw err;
+      },
+    };
+    const resilientStore = new PlinglistStore({ storage: failingStorage, locale: 'de' });
+    assert.equal(resilientStore.lastStorageError, 'Storage quota exceeded');
+
+    const t = resilientStore.addTask({
+      title: 'Offline trotz vollem Speicher',
+      listId: resilientStore.getDefaultTasksListId(),
+    });
+    assert.equal(resilientStore.tasks.length, 1);
+    assert.equal(resilientStore.lastStorageError, 'Storage quota exceeded');
+
+    const { completedTask } = resilientStore.toggleTaskCompleted(t.id, '2026-11-24');
+    assert.equal(completedTask.completed, true);
+    assert.equal(resilientStore.lastStorageError, 'Storage quota exceeded');
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

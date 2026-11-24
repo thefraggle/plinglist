@@ -537,3 +537,172 @@ test('server supports DELETE /api/v1/sync workspace erasure and returns real 404
     repo.close();
   }
 });
+
+test('cross-workspace task ID hijacking is blocked while same-owner task move succeeds', async () => {
+  for (const repo of [new SqliteSyncRepository(':memory:'), new InMemorySyncRepository()]) {
+    const h1 = formatHlc(10000, 0, 'alice');
+    const hHigh = formatHlc(99999, 0, 'bob');
+    const hMove = formatHlc(100000, 0, 'alice');
+
+    try {
+      await repo.applyAndPullDeltas({
+        userId: 'u-alice',
+        syncKey: 'pling-alice-key-111111',
+        listIds: ['list-alice-1', 'list-alice-2'],
+        clientLists: [
+          makeList('list-alice-1', h1, { title: 'Alice Inbox' }),
+          makeList('list-alice-2', h1, { title: 'Alice Archive' }),
+        ],
+        clientTasks: [
+          makeTask('t-victim', h1, {
+            listId: 'list-alice-1',
+            title: 'Alice Secret',
+            note: 'confidential',
+          }),
+        ],
+      });
+
+      await repo.applyAndPullDeltas({
+        userId: 'u-bob',
+        syncKey: 'pling-bob-key-222222',
+        listIds: ['list-bob'],
+        clientLists: [makeList('list-bob', h1, { title: 'Bob List' })],
+        clientTasks: [],
+      });
+
+      // Bob tries to steal/overwrite t-victim by pointing it to his own list-bob with higher HLC
+      const hijackRes = await repo.applyAndPullDeltas({
+        userId: 'u-bob',
+        syncKey: 'pling-bob-key-222222',
+        listIds: ['list-bob'],
+        clientLists: [],
+        clientTasks: [
+          makeTask('t-victim', hHigh, {
+            listId: 'list-bob',
+            title: 'Hijacked',
+          }),
+        ],
+      });
+      assert.equal(hijackRes.acceptedCount, 0);
+      assert.equal(hijackRes.serverTasks.length, 0);
+
+      // Alice's task remains intact on list-alice-1
+      const aliceCheck = await repo.applyAndPullDeltas({
+        userId: 'u-alice',
+        syncKey: 'pling-alice-key-111111',
+        listIds: ['list-alice-1', 'list-alice-2'],
+        clientLists: [],
+        clientTasks: [],
+      });
+      const victim = aliceCheck.serverTasks.find((t) => t.id === 't-victim');
+      assert.ok(victim);
+      assert.equal(victim.listId, 'list-alice-1');
+      assert.equal(victim.title, 'Alice Secret');
+      assert.equal(victim.note, 'confidential');
+
+      // Alice moving her own task from list-alice-1 to list-alice-2 succeeds
+      const moveRes = await repo.applyAndPullDeltas({
+        userId: 'u-alice',
+        syncKey: 'pling-alice-key-111111',
+        listIds: ['list-alice-1', 'list-alice-2'],
+        clientLists: [],
+        clientTasks: [
+          makeTask('t-victim', hMove, {
+            listId: 'list-alice-2',
+            title: 'Alice Secret',
+            note: 'confidential',
+            fieldHlcs: { listId: hMove },
+          }),
+        ],
+      });
+      assert.equal(moveRes.acceptedCount, 1);
+      assert.equal(
+        moveRes.serverTasks.find((t) => t.id === 't-victim')?.listId,
+        'list-alice-2',
+      );
+    } finally {
+      if ('close' in repo && typeof repo.close === 'function') {
+        repo.close();
+      }
+    }
+  }
+});
+
+test('HTTP server fails closed on empty webhook secret, validates sync payloads, sets security headers, and rate-limits invites', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(
+    loadServerConfig({
+      PORT: '0',
+      CLOUD_EXTENSION_ENABLED: 'true',
+      CLOUD_WEBHOOK_SECRET: '',
+    }),
+    repo,
+  );
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    // 1. Security headers on API & HTML responses
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.equal(healthRes.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(healthRes.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(healthRes.headers.get('x-frame-options'), 'DENY');
+    assert.ok(healthRes.headers.get('content-security-policy'));
+
+    const notFoundRes = await fetch(`${baseUrl}/non-existent-page`);
+    assert.equal(notFoundRes.status, 404);
+    assert.equal(notFoundRes.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(notFoundRes.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(notFoundRes.headers.get('x-frame-options'), 'DENY');
+    assert.ok(notFoundRes.headers.get('content-security-policy'));
+
+    // 2. Empty CLOUD_WEBHOOK_SECRET fails closed (401)
+    const hookRes = await fetch(`${baseUrl}/api/v1/cloud/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'checkout.session.completed',
+        userId: 'pling-attacker',
+        priceTier: 'lifetime',
+      }),
+    });
+    assert.equal(hookRes.status, 401);
+    const hookBody = (await hookRes.json()) as { error: string };
+    assert.equal(hookBody.error, 'UNAUTHORIZED_WEBHOOK');
+
+    // 3. Malformed sync payloads return 400 INVALID_SYNC_REQUEST
+    for (const badBody of [
+      { userId: 123 },
+      { userId: 'u1', listIds: 'invalid', clientTasks: null },
+    ]) {
+      const badSyncRes = await fetch(`${baseUrl}/api/v1/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(badBody),
+      });
+      assert.equal(badSyncRes.status, 400);
+      const badJson = (await badSyncRes.json()) as { error: string };
+      assert.equal(badJson.error, 'INVALID_SYNC_REQUEST');
+    }
+
+    // 4. Rate limiter triggers 429 on /api/v1/invites/:token/join
+    let hitRateLimit = false;
+    for (let i = 0; i < 65; i += 1) {
+      const res = await fetch(`${baseUrl}/api/v1/invites/probe-${i}/join`, { method: 'POST' });
+      if (res.status === 429) {
+        const body = (await res.json()) as { error: string };
+        assert.equal(body.error, 'RATE_LIMIT_EXCEEDED');
+        hitRateLimit = true;
+        break;
+      }
+    }
+    assert.equal(hitRateLimit, true);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
