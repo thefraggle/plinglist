@@ -1,8 +1,9 @@
-const CACHE_NAME = 'plinglist-app-v2';
+const CACHE_NAME = 'plinglist-app-v3';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './favicon.svg',
   './manifest.webmanifest',
   './app/src/web-app.js',
   './app/src/store.js',

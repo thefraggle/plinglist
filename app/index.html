@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#0d6b58" />
     <title>Plinglist — Pling. Done.</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -73,9 +74,6 @@
         </div>
 
         <div class="sidebar-footer">
-          <button type="button" id="openImportBtn" class="btn-ghost" data-i18n="nav.import">
-            Import
-          </button>
           <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
             Einstellungen
           </button>
@@ -413,6 +411,15 @@
             <input id="settingsSoundCheckbox" type="checkbox" />
             <span data-i18n="settings.soundEnabled"></span>
           </label>
+
+          <div class="sidebar-divider"></div>
+
+          <div class="field-group">
+            <span class="field-label" data-i18n="importer.title">Aus Wunderlist oder Microsoft To Do importieren</span>
+            <button type="button" id="openImportBtn" class="btn-secondary btn-compact" data-i18n="nav.import">
+              Import
+            </button>
+          </div>
 
           <p id="settingsErrorText" class="error-text" hidden></p>
 

@@ -458,11 +458,12 @@ function initApp(): void {
     const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
     const renameListBtn = document.getElementById('renameListBtn') as HTMLButtonElement | null;
     const deleteListBtn = document.getElementById('deleteListBtn') as HTMLButtonElement | null;
+    const isCustomEditableList = activeView === 'lists' && !store.isSystemTasksList(activeListId);
     if (renameListBtn) {
-      renameListBtn.hidden = activeView !== 'lists';
+      renameListBtn.hidden = !isCustomEditableList;
     }
     if (deleteListBtn) {
-      deleteListBtn.hidden = activeView !== 'lists' || activeLists.length <= 1;
+      deleteListBtn.hidden = !isCustomEditableList;
     }
 
     let visibleTasks: TaskItem[] = [];
@@ -686,7 +687,7 @@ function initApp(): void {
   });
 
   document.getElementById('deleteListBtn')?.addEventListener('click', () => {
-    if (store.getActiveLists().length <= 1) return;
+    if (store.isSystemTasksList(activeListId) || store.getActiveLists().length <= 1) return;
     store.deleteList(activeListId);
     activeView = 'my-day';
     activeListId = store.getDefaultTasksListId();
@@ -786,6 +787,9 @@ function initApp(): void {
 
   document.getElementById('openImportBtn')?.addEventListener('click', () => {
     closeMobileDrawer();
+    if (settingsDialog.open) {
+      settingsDialog.close();
+    }
     (document.getElementById('importErrorText') as HTMLElement).hidden = true;
     importDialog.showModal();
   });

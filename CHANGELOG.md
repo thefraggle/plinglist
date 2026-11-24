@@ -2,6 +2,15 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.5] - 2026-11-24
+
+### Added
+- **SVG Favicon & PWA Icon (`app/favicon.svg`, `app/manifest.webmanifest`):** Added crisp green checkmark SVG favicon (`#0d6b58`), copied into `app/dist/favicon.svg` via `scripts/build-app.mjs`, and precached in `app/sw.js` (`plinglist-app-v3`).
+
+### Changed
+- **Protected Default Tasks List (`app/src/store.ts`, `app/src/web-app.ts`):** Added `isSystemTasksList()` so the initial *Aufgaben / Tasks* inbox list (fallback target for Quick-Add from *My Day* / *Starred* / *Planned*) cannot be renamed or deleted, while custom lists and the seeded *Einkauf / Groceries* list remain editable/deletable.
+- **Settings-Integrated Migration (`app/index.html`, `app/styles.css`, `app/src/web-app.ts`):** Moved the one-time Wunderlist / MS To Do import trigger from the sidebar footer into the `#settingsDialog` modal for a cleaner daily UI.
+
 ## [0.1.4] - 2026-11-24
 
 ### Added

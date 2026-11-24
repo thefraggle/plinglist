@@ -259,13 +259,19 @@ test('build-app produces every asset precached in sw.js', () => {
   }
 });
 
-test('PlinglistStore renames and soft-deletes custom lists while protecting the last remaining list', () => {
+test('PlinglistStore renames and soft-deletes custom lists while protecting the default tasks system list', () => {
   const storage = createMemoryStorage();
   const store = new PlinglistStore({ storage, locale: 'de' });
   const initialLists = store.getActiveLists();
   assert.equal(initialLists.length, 2);
 
+  const defaultTasksId = store.getDefaultTasksListId();
+  assert.equal(store.isSystemTasksList(defaultTasksId), true);
+  assert.throws(() => store.renameList(defaultTasksId, 'Andere Inbox'));
+  assert.throws(() => store.deleteList(defaultTasksId));
+
   const custom = store.addList('Projekt X');
+  assert.equal(store.isSystemTasksList(custom.id), false);
   const taskInCustom = store.addTask({ title: 'Spec lesen', listId: custom.id });
 
   const renamed = store.renameList(custom.id, '  Projekt Y  ');
@@ -282,8 +288,10 @@ test('PlinglistStore renames and soft-deletes custom lists while protecting the 
   const deletedTask = store.tasks.find((t) => t.id === taskInCustom.id);
   assert.ok(deletedTask?.deletedAt);
 
-  // Delete one of the two seeded lists, then ensure deleting the last remaining list throws
-  store.deleteList(store.getActiveLists()[1].id);
+  // Seeded groceries list can be deleted, while default tasks list remains protected
+  const groceriesList = store.getActiveLists().find((l) => l.id !== defaultTasksId)!;
+  store.deleteList(groceriesList.id);
   assert.equal(store.getActiveLists().length, 1);
-  assert.throws(() => store.deleteList(store.getActiveLists()[0].id));
+  assert.equal(store.getActiveLists()[0].id, defaultTasksId);
+  assert.throws(() => store.deleteList(defaultTasksId));
 });

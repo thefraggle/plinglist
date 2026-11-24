@@ -282,7 +282,7 @@ body {
 
 .sidebar-footer {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 0.45rem;
   margin-top: auto;
   padding-top: 0.5rem;

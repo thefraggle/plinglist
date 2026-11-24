@@ -66,6 +66,7 @@ compileTsDirectory('app/src', 'app/src');
 
 copyStaticFile('app/index.html', 'index.html');
 copyStaticFile('app/styles.css', 'styles.css');
+copyStaticFile('app/favicon.svg', 'favicon.svg');
 copyStaticFile('app/manifest.webmanifest', 'manifest.webmanifest');
 copyStaticFile('app/sw.js', 'sw.js');
 copyDirectoryRecursive(path.join(ROOT, 'app', 'public'), DIST_DIR);

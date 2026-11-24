@@ -150,7 +150,13 @@ export class PlinglistStore {
   }
 
   getDefaultTasksListId(): string {
-    return this.getActiveLists()[0]?.id ?? `list-tasks-${deriveWorkspaceSuffix(this.syncKey)}`;
+    const active = this.getActiveLists();
+    const systemList = active.find((list) => list.id.startsWith('list-tasks-'));
+    return systemList?.id ?? active[0]?.id ?? `list-tasks-${deriveWorkspaceSuffix(this.syncKey)}`;
+  }
+
+  isSystemTasksList(listId: string): boolean {
+    return listId.startsWith('list-tasks-') || listId === this.getDefaultTasksListId();
   }
 
   private load(): boolean {
@@ -238,6 +244,9 @@ export class PlinglistStore {
   }
 
   renameList(listId: string, nextTitle: string): TaskList {
+    if (this.isSystemTasksList(listId)) {
+      throw new Error('Cannot rename the default tasks list');
+    }
     const clean = nextTitle.trim();
     if (!clean) {
       throw new Error('List title must not be empty');
@@ -254,6 +263,9 @@ export class PlinglistStore {
   }
 
   deleteList(listId: string): void {
+    if (this.isSystemTasksList(listId)) {
+      throw new Error('Cannot delete the default tasks list');
+    }
     const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
     if (!list) {
       throw new Error(`List not found: ${listId}`);
