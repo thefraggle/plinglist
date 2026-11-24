@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#0d6b58" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Plinglist" />
     <title>Plinglist — Pling. Done.</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="modulepreload" href="./app/src/store.js" />
@@ -352,6 +356,27 @@
             <p class="field-hint">
               <strong data-i18n="settings.syncKey">Sync-Key</strong>: <code id="shareSyncKeyCode"></code>
             </p>
+          </section>
+
+          <div class="sidebar-divider"></div>
+
+          <section class="share-block">
+            <h3 class="share-heading" data-i18n="share.joinSectionTitle">Geteilter Liste beitreten</h3>
+            <p class="prose-note" data-i18n="share.joinSectionHint"></p>
+            <form id="joinSharedListForm" class="copy-row">
+              <label for="joinSharedListInput" class="sr-only" data-i18n="share.joinPlaceholder">Einladungslink oder inv-... Code einfügen</label>
+              <input
+                id="joinSharedListInput"
+                type="text"
+                autocomplete="off"
+                data-i18n-placeholder="share.joinPlaceholder"
+                placeholder="Einladungslink oder inv-... Code einfügen"
+                required
+              />
+              <button type="submit" id="joinSharedListBtn" class="btn-primary btn-compact" data-i18n="share.joinBtn">
+                Beitreten
+              </button>
+            </form>
           </section>
         </div>
       </div>

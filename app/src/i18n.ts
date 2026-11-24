@@ -127,6 +127,10 @@ export const TRANSLATIONS = {
       'Open this pairing link on your second device (or paste your Sync Key in Settings) to sync all your lists without an account.',
     'share.copyPairBtn': 'Copy pairing link',
     'share.pairCopied': 'Pairing link copied',
+    'share.joinSectionTitle': 'Join a shared list',
+    'share.joinSectionHint': 'Paste an invite link (?join=...) or invite code (inv-...) you received.',
+    'share.joinPlaceholder': 'Paste invite link or inv-... code',
+    'share.joinBtn': 'Join',
     'importer.title': 'Import from Wunderlist or Microsoft To Do',
     'importer.description':
       'Select a JSON or CSV export file or paste exported JSON/CSV below. Lists, subtasks, due dates, stars, and notes are imported locally.',
@@ -165,7 +169,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.18 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.19 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -310,6 +314,11 @@ export const TRANSLATIONS = {
       'Öffne diesen Koppellink auf deinem Zweitgerät (oder gib deinen Sync-Key dort in den Einstellungen ein), um alle Listen ohne Account synchron zu halten.',
     'share.copyPairBtn': 'Koppellink kopieren',
     'share.pairCopied': 'Koppellink kopiert',
+    'share.joinSectionTitle': 'Geteilter Liste beitreten',
+    'share.joinSectionHint':
+      'Füge einen erhaltenen Einladungslink (?join=...) oder Einladungscode (inv-...) ein.',
+    'share.joinPlaceholder': 'Einladungslink oder inv-... Code einfügen',
+    'share.joinBtn': 'Beitreten',
     'importer.title': 'Aus Wunderlist oder Microsoft To Do importieren',
     'importer.description':
       'Wähle eine JSON- oder CSV-Exportdatei oder füge den Export direkt ein. Listen, Teilschritte, Fälligkeiten, Sterne und Notizen werden lokal übernommen.',
@@ -348,7 +357,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.18 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.19 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

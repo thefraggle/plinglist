@@ -1,0 +1,9 @@
+{
+  "appId": "de.goork.plinglist",
+  "appName": "Plinglist",
+  "webDir": "app/dist",
+  "ios": {
+    "contentInset": "never",
+    "scheme": "Plinglist"
+  }
+}

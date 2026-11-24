@@ -13,7 +13,13 @@ import {
   type TaskItem,
 } from '../../packages/core/src/index.ts';
 import { CC0_CHIME_NOTES, CHIME_MASTER_GAIN } from './audio.ts';
-import { UMAMI_APP_WEBSITE_ID, UMAMI_SCRIPT_URL } from './config.ts';
+import {
+  UMAMI_APP_WEBSITE_ID,
+  UMAMI_SCRIPT_URL,
+  extractInviteTokenFromInput,
+  extractSyncKeyFromInput,
+  getShareBaseOrigin,
+} from './config.ts';
 import { t, type TranslationKey } from './i18n.ts';
 import { PlinglistStore, getLocalIsoDate } from './store.ts';
 
@@ -817,7 +823,10 @@ function initApp(): void {
   function refreshShareDialogState(listId: string): void {
     const urlInput = document.getElementById('shareInviteUrlInput') as HTMLInputElement;
     const unshareBtn = document.getElementById('unshareListBtn') as HTMLButtonElement;
-    const existingUrl = store.getInviteUrl(listId, window.location.origin);
+    const existingUrl = store.getInviteUrl(
+      listId,
+      getShareBaseOrigin(window.location.origin, store.serverUrl),
+    );
     if (existingUrl) {
       urlInput.value = existingUrl;
       urlInput.placeholder = '';
@@ -854,7 +863,7 @@ function initApp(): void {
       (document.getElementById('unshareListBtn') as HTMLButtonElement).hidden = true;
     }
     (document.getElementById('sharePairUrlInput') as HTMLInputElement).value =
-      store.getPairingUrl(window.location.origin);
+      store.getPairingUrl(getShareBaseOrigin(window.location.origin, store.serverUrl));
     (document.getElementById('shareSyncKeyCode') as HTMLElement).textContent = store.syncKey;
 
     const canNativeShare = typeof navigator.share === 'function';
@@ -1103,7 +1112,9 @@ function initApp(): void {
   }
 
   document.getElementById('copySettingsPairUrlBtn')?.addEventListener('click', async () => {
-    const pairUrl = store.getPairingUrl(window.location.origin);
+    const pairUrl = store.getPairingUrl(
+      getShareBaseOrigin(window.location.origin, store.serverUrl),
+    );
     const input = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
     await copyWithFeedback(pairUrl, input, 'share.pairCopied');
   });
@@ -1119,7 +1130,10 @@ function initApp(): void {
     btn.dataset.loading = 'true';
     btn.disabled = true;
     try {
-      const { inviteUrl } = store.shareList(listId, window.location.origin);
+      const { inviteUrl } = store.shareList(
+        listId,
+        getShareBaseOrigin(window.location.origin, store.serverUrl),
+      );
       refreshShareDialogState(listId);
       render();
       void runSyncNow();
@@ -1140,7 +1154,10 @@ function initApp(): void {
 
   document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
     const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
-    const { inviteUrl } = store.shareList(listId, window.location.origin);
+    const { inviteUrl } = store.shareList(
+      listId,
+      getShareBaseOrigin(window.location.origin, store.serverUrl),
+    );
     refreshShareDialogState(listId);
     render();
     void runSyncNow();
@@ -1164,6 +1181,32 @@ function initApp(): void {
     await navigator
       .share?.({ title: 'Plinglist Sync', text: t(store.locale, 'share.pairSectionTitle'), url })
       .catch(() => undefined);
+  });
+
+  document.getElementById('joinSharedListForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.getElementById('joinSharedListInput') as HTMLInputElement;
+    const btn = document.getElementById('joinSharedListBtn') as HTMLButtonElement;
+    const rawValue = input.value.trim();
+    if (!rawValue) return;
+    btn.dataset.loading = 'true';
+    btn.disabled = true;
+    try {
+      const joinedList = await store.joinSharedListByToken(rawValue);
+      hasSyncedOnce = true;
+      activeView = 'lists';
+      activeListId = joinedList.id;
+      input.value = '';
+      trackDiagnostic('list_joined');
+      await closeTopLayer(shareDialog);
+      showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
+      render();
+    } catch {
+      showToast(t(store.locale, 'toast.joinFailed'));
+    } finally {
+      delete btn.dataset.loading;
+      btn.disabled = false;
+    }
   });
 
   document.getElementById('detailMyDayBtn')?.addEventListener('click', () => {
@@ -1590,6 +1633,81 @@ function initApp(): void {
   if ('serviceWorker' in navigator) {
     void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   }
+
+  async function handleIncomingDeepLinkUrl(rawUrl: string): Promise<void> {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return;
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return;
+    }
+
+    const legal = parsed.searchParams.get('legal');
+    if (legal === 'imprint' || legal === 'privacy') {
+      openLegalModal(legal);
+    }
+
+    const pairCandidate = parsed.searchParams.get('pair') ?? parsed.searchParams.get('key');
+    if (pairCandidate?.trim()) {
+      try {
+        store.setSyncKey(extractSyncKeyFromInput(trimmed));
+        await store.syncWithServer();
+        hasSyncedOnce = true;
+        trackDiagnostic('device_paired');
+        showToast(t(store.locale, 'toast.devicePaired'));
+        render();
+      } catch {
+        showToast(t(store.locale, 'toast.pairFailed'));
+      }
+    }
+
+    const joinCandidate = extractInviteTokenFromInput(trimmed);
+    const hasJoinSignal =
+      Boolean(parsed.searchParams.get('join') || parsed.searchParams.get('token')) ||
+      /\/join\/[^/?#]+/.test(parsed.pathname);
+    if (hasJoinSignal && joinCandidate) {
+      try {
+        const joinedList = await store.joinSharedListByToken(joinCandidate);
+        hasSyncedOnce = true;
+        activeView = 'lists';
+        activeListId = joinedList.id;
+        trackDiagnostic('list_joined');
+        showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
+        render();
+      } catch {
+        showToast(t(store.locale, 'toast.joinFailed'));
+      }
+    }
+  }
+
+  window.addEventListener('plinglist:open-url', (event) => {
+    const detailUrl = (event as CustomEvent<{ url?: string }>).detail?.url;
+    if (typeof detailUrl === 'string') {
+      void handleIncomingDeepLinkUrl(detailUrl);
+    }
+  });
+
+  const capacitorAppPlugin = (
+    window as {
+      Capacitor?: {
+        Plugins?: {
+          App?: {
+            addListener?: (
+              eventName: string,
+              cb: (data: { url?: string }) => void,
+            ) => void;
+          };
+        };
+      };
+    }
+  ).Capacitor?.Plugins?.App;
+  capacitorAppPlugin?.addListener?.('appUrlOpen', (data) => {
+    if (typeof data?.url === 'string') {
+      void handleIncomingDeepLinkUrl(data.url);
+    }
+  });
 
   async function handleJoinParamOnStartup(): Promise<void> {
     const params = new URLSearchParams(window.location.search);

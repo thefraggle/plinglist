@@ -129,7 +129,7 @@ body {
   background-color: var(--bg-surface);
   border-right: 1px solid var(--border-color);
   box-shadow: var(--shadow-dialog);
-  padding: 1rem;
+  padding: calc(1rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -161,7 +161,7 @@ body {
     z-index: 1;
     box-shadow: none;
     transform: none;
-    padding: 1.25rem 1rem;
+    padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 1rem 1.25rem;
   }
 
   .sidebar-backdrop,
@@ -299,7 +299,7 @@ body {
 }
 
 .main-view {
-  padding: 0.95rem 1rem calc(5.25rem + env(safe-area-inset-bottom, 0px));
+  padding: calc(0.95rem + env(safe-area-inset-top, 0px)) 1rem calc(5.25rem + env(safe-area-inset-bottom, 0px));
   max-width: 54rem;
   width: 100%;
   margin: 0 auto;
@@ -310,7 +310,7 @@ body {
 
 @media (min-width: 768px) {
   .main-view {
-    padding: 2rem 2.5rem;
+    padding: calc(2rem + env(safe-area-inset-top, 0px)) 2.5rem 2rem;
     gap: 1.1rem;
   }
 }

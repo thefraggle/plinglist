@@ -14,6 +14,8 @@ import {
 } from '../../packages/core/src/index.ts';
 import {
   DEFAULT_SERVER_URL,
+  extractInviteTokenFromInput,
+  extractSyncKeyFromInput,
   getDefaultServerUrl,
   isOfficialCloudOrigin,
   normalizeServerUrl,
@@ -831,7 +833,7 @@ export class PlinglistStore {
   }
 
   setSyncKey(nextSyncKey: string): string {
-    const clean = nextSyncKey.trim();
+    const clean = extractSyncKeyFromInput(nextSyncKey);
     if (clean.length < 8) {
       throw new Error('Sync-Key must be at least 8 characters');
     }
@@ -1004,7 +1006,7 @@ export class PlinglistStore {
     inviteToken: string,
     fetchFn: typeof fetch = globalThis.fetch,
   ): Promise<TaskList> {
-    const cleanToken = inviteToken.trim();
+    const cleanToken = extractInviteTokenFromInput(inviteToken);
     if (!cleanToken) {
       throw new Error('Invite token must not be empty');
     }

@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.19] - 2026-11-24
+
+### Added
+- **iOS & macOS App Preparation (`capacitor.config.json`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/index.html`, `app/styles.css`):**
+  - Added Capacitor 7 configuration (`de.goork.plinglist`, `webDir: app/dist`, custom scheme `Plinglist`).
+  - Added `isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, and `extractInviteTokenFromInput()` so native iOS/macOS WebViews sync against the configured backend, emit clean `https://plinglist.app/?join=` / `?pair=` share links, accept pasted `?pair=` / `?join=` URLs directly in-app, and handle incoming `plinglist://` deep links.
+  - Added `#joinSharedListForm` in `#shareDialog`, `apple-mobile-web-app-*` PWA meta tags in `app/index.html`, and `env(safe-area-inset-top)` padding on `.sidebar` / `.main-view`.
+
 ## [0.1.18] - 2026-11-24
 
 ### Security

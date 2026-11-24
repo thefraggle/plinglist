@@ -5,8 +5,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_SERVER_URL,
+  OFFICIAL_APP_ORIGIN,
   UMAMI_APP_WEBSITE_ID,
+  extractInviteTokenFromInput,
+  extractSyncKeyFromInput,
   getDefaultServerUrl,
+  getShareBaseOrigin,
+  isNativeShellOrigin,
   isOfficialCloudOrigin,
   normalizeServerUrl,
 } from '../src/config.ts';
@@ -579,8 +584,12 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="deleteWorkspaceBtn"/);
   assert.match(html, /id="taskSearchInput"/);
   assert.match(html, /id="detailListSelect"/);
+  assert.match(html, /id="joinSharedListForm"/);
+  assert.match(html, /id="joinSharedListInput"/);
+  assert.match(html, /id="joinSharedListBtn"/);
+  assert.match(html, /apple-mobile-web-app-capable/);
   assert.match(html, /role="tabpanel"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.18/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.19/);
   assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
 });
 
@@ -764,6 +773,93 @@ test('high-entropy syncKey/inviteToken, isolated workspace imports, and localSto
     const { completedTask } = resilientStore.toggleTaskCompleted(t.id, '2026-11-24');
     assert.equal(completedTask.completed, true);
     assert.equal(resilientStore.lastStorageError, 'Storage quota exceeded');
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
+
+test('native shell origin helpers, share base origin, and ?pair= / ?join= input extraction work for iOS & macOS', async () => {
+  assert.equal(isNativeShellOrigin('capacitor://localhost'), true);
+  assert.equal(isNativeShellOrigin('tauri://localhost'), true);
+  assert.equal(isNativeShellOrigin('http://localhost'), true);
+  assert.equal(isNativeShellOrigin('https://tauri.localhost'), true);
+  assert.equal(isNativeShellOrigin(undefined), true);
+  assert.equal(isNativeShellOrigin('https://plinglist.app'), false);
+  assert.equal(isNativeShellOrigin('http://localhost:3001'), false);
+
+  assert.equal(
+    getShareBaseOrigin('capacitor://localhost', DEFAULT_SERVER_URL),
+    OFFICIAL_APP_ORIGIN,
+  );
+  assert.equal(
+    getShareBaseOrigin('tauri://localhost', OFFICIAL_APP_ORIGIN),
+    OFFICIAL_APP_ORIGIN,
+  );
+  assert.equal(
+    getShareBaseOrigin('capacitor://localhost', 'https://todo.example.com'),
+    'https://todo.example.com',
+  );
+  assert.equal(
+    getShareBaseOrigin('https://plinglist.app/', DEFAULT_SERVER_URL),
+    'https://plinglist.app',
+  );
+  assert.equal(
+    getShareBaseOrigin('http://localhost:3001/', 'http://localhost:3001'),
+    'http://localhost:3001',
+  );
+
+  assert.equal(
+    extractSyncKeyFromInput('https://plinglist.app/?pair=pling-111111-222222-333333-444444'),
+    'pling-111111-222222-333333-444444',
+  );
+  assert.equal(
+    extractSyncKeyFromInput('plinglist://pair?key=pling-111111-222222-333333-444444'),
+    'pling-111111-222222-333333-444444',
+  );
+  assert.equal(
+    extractSyncKeyFromInput('  pling-111111-222222-333333-444444  '),
+    'pling-111111-222222-333333-444444',
+  );
+
+  assert.equal(
+    extractInviteTokenFromInput('https://plinglist.app/?join=inv-abc123'),
+    'inv-abc123',
+  );
+  assert.equal(
+    extractInviteTokenFromInput('https://api.plinglist.app/join/inv-abc123'),
+    'inv-abc123',
+  );
+  assert.equal(
+    extractInviteTokenFromInput('plinglist://join?token=inv-abc123'),
+    'inv-abc123',
+  );
+  assert.equal(extractInviteTokenFromInput('  inv-abc123  '), 'inv-abc123');
+
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    const owner = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const sharedList = owner.addList('Native Mac List');
+    const { list } = owner.shareList(sharedList.id, OFFICIAL_APP_ORIGIN);
+    await owner.syncWithServer();
+
+    const mobile = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    mobile.setSyncKey(`https://plinglist.app/?pair=${owner.syncKey}`);
+    assert.equal(mobile.syncKey, owner.syncKey);
+
+    const guest = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const joined = await guest.joinSharedListByToken(
+      `https://plinglist.app/?join=${list.inviteToken}`,
+    );
+    assert.equal(joined.id, sharedList.id);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),
