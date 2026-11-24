@@ -165,13 +165,73 @@ export class PlinglistStore {
     );
   }
 
-  private sanitizeSystemLists(): void {
-    for (const list of this.lists) {
-      if (this.isSystemTasksList(list.id) && (list.shared || list.inviteToken !== null)) {
-        list.shared = false;
-        list.inviteToken = null;
+  private consolidateWorkspaceLists(): boolean {
+    const suffix = deriveWorkspaceSuffix(this.syncKey);
+    const nowIso = new Date().toISOString();
+    let changed = false;
+
+    const remapTasksToList = (
+      matchesListId: (id: string) => boolean,
+      canonicalId: string,
+    ): void => {
+      for (const task of this.tasks) {
+        if (matchesListId(task.listId) && task.listId !== canonicalId) {
+          const hlc = this.clock.now();
+          task.listId = canonicalId;
+          task.hlc = hlc;
+          task.updatedAt = nowIso;
+          task.fieldHlcs = { ...task.fieldHlcs, listId: hlc };
+          changed = true;
+        }
       }
+    };
+
+    const isTasksId = (id: string): boolean => id === 'list-tasks' || id.startsWith('list-tasks-');
+    const canonicalTasksId = `list-tasks-${suffix}`;
+    const taskLists = this.lists.filter((l) => isTasksId(l.id));
+    if (taskLists.length > 0) {
+      const keeper = taskLists.find((l) => l.id === canonicalTasksId) ?? taskLists[0];
+      const needsUpdate =
+        keeper.id !== canonicalTasksId ||
+        taskLists.length > 1 ||
+        keeper.shared ||
+        keeper.inviteToken !== null ||
+        keeper.deletedAt !== null;
+      if (needsUpdate) {
+        keeper.id = canonicalTasksId;
+        keeper.shared = false;
+        keeper.inviteToken = null;
+        keeper.deletedAt = null;
+        keeper.updatedAt = nowIso;
+        keeper.hlc = this.clock.now();
+        this.lists = this.lists.filter((l) => !isTasksId(l.id) || l === keeper);
+        changed = true;
+      }
+      remapTasksToList(isTasksId, canonicalTasksId);
     }
+
+    const isGroceriesId = (id: string): boolean =>
+      id === 'list-groceries' || id.startsWith('list-groceries-');
+    const canonicalGroceriesId = `list-groceries-${suffix}`;
+    const groceryLists = this.lists.filter((l) => isGroceriesId(l.id));
+    if (groceryLists.length > 0) {
+      const activeGroceries = groceryLists.filter((l) => l.deletedAt === null);
+      const keeper =
+        activeGroceries.find((l) => l.id === canonicalGroceriesId) ??
+        activeGroceries[0] ??
+        groceryLists.find((l) => l.id === canonicalGroceriesId) ??
+        groceryLists[0];
+      if (keeper.id !== canonicalGroceriesId || groceryLists.length > 1) {
+        keeper.id = canonicalGroceriesId;
+        keeper.updatedAt = nowIso;
+        keeper.hlc = this.clock.now();
+        this.lists = this.lists.filter((l) => !isGroceriesId(l.id) || l === keeper);
+        changed = true;
+      }
+      remapTasksToList(isGroceriesId, canonicalGroceriesId);
+    }
+
+    return changed;
   }
 
   private load(): boolean {
@@ -193,12 +253,14 @@ export class PlinglistStore {
       this.soundEnabled = parsed.soundEnabled !== false;
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
-      this.sanitizeSystemLists();
       for (const list of this.lists) {
         this.clock.receive(list.hlc);
       }
       for (const task of this.tasks) {
         this.clock.receive(task.hlc);
+      }
+      if (this.consolidateWorkspaceLists()) {
+        this.persist(true);
       }
       return this.lists.length > 0;
     } catch {
@@ -634,17 +696,23 @@ export class PlinglistStore {
     if (clean.length < 8) {
       throw new Error('Sync-Key must be at least 8 characters');
     }
-    const oldSuffix = deriveWorkspaceSuffix(this.syncKey);
-    const newSuffix = deriveWorkspaceSuffix(clean);
+    const prevSyncKey = this.syncKey;
     this.syncKey = clean;
     this.cursorHlc = null;
 
-    if (this.tasks.length === 0) {
+    this.consolidateWorkspaceLists();
+    if (clean !== prevSyncKey) {
+      const nowIso = new Date().toISOString();
       for (const list of this.lists) {
-        if (list.id === `list-tasks-${oldSuffix}`) {
-          list.id = `list-tasks-${newSuffix}`;
-        } else if (list.id === `list-groceries-${oldSuffix}`) {
-          list.id = `list-groceries-${newSuffix}`;
+        if (list.deletedAt === null) {
+          list.hlc = this.clock.now();
+          list.updatedAt = nowIso;
+        }
+      }
+      for (const task of this.tasks) {
+        if (task.deletedAt === null) {
+          task.hlc = this.clock.now();
+          task.updatedAt = nowIso;
         }
       }
     }
@@ -671,7 +739,6 @@ export class PlinglistStore {
         pulledLists += 1;
       }
     }
-    this.sanitizeSystemLists();
 
     for (const incomingTask of response.serverTasks) {
       this.clock.receive(incomingTask.hlc);
@@ -688,6 +755,7 @@ export class PlinglistStore {
       this.cursorHlc = response.cursorHlc;
     }
 
+    this.consolidateWorkspaceLists();
     this.persist(true);
     return { pulledLists, pulledTasks };
   }

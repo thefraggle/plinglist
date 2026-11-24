@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  HlcClock,
   compareHlc,
   mergeListLww,
   mergeTaskLww,
@@ -11,7 +12,10 @@ import {
 } from '../../packages/core/src/index.ts';
 import {
   EntitlementRequiredError,
+  advanceWatermarkIfNeeded,
+  isAuthorizedCaller,
   isEntitlementActive,
+  pickHigherHlc,
   type CloudEntitlementGuard,
   type EntitlementPlan,
   type EntitlementRecord,
@@ -30,6 +34,7 @@ interface StoredListRow {
 
 export class SqliteSyncRepository implements SyncRepository {
   private readonly db: DatabaseSync;
+  private readonly serverClock = new HlcClock('server');
   private readonly guard?: CloudEntitlementGuard;
 
   constructor(sqlitePath: string, guard?: CloudEntitlementGuard) {
@@ -80,6 +85,7 @@ export class SqliteSyncRepository implements SyncRepository {
   private isListRowAuthorized(
     row: StoredListRow | undefined,
     callerKey: string,
+    callerUserId: string,
     listId: string,
     inviteTokens?: Record<string, string>,
     incomingInviteToken?: string | null,
@@ -87,19 +93,22 @@ export class SqliteSyncRepository implements SyncRepository {
     if (!row) {
       return true;
     }
-    if (!row.owner_sync_key || row.owner_sync_key === callerKey) {
-      return true;
-    }
     const existing = JSON.parse(row.payload_json) as TaskList;
-    if (existing.shared && existing.inviteToken) {
-      const provided = inviteTokens?.[listId] ?? incomingInviteToken ?? null;
-      return provided === existing.inviteToken;
-    }
-    return false;
+    return isAuthorizedCaller({
+      ownerKey: row.owner_sync_key,
+      callerKey,
+      callerUserId,
+      shared: existing.shared,
+      storedInviteToken: existing.inviteToken,
+      listId,
+      inviteTokens,
+      incomingInviteToken,
+    });
   }
 
   async applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse> {
-    const callerKey = request.syncKey?.trim() || request.userId;
+    const callerUserId = request.userId.trim();
+    const callerKey = request.syncKey?.trim() || callerUserId;
     if (this.guard) {
       const allowed = await this.guard(callerKey);
       if (!allowed) {
@@ -120,7 +129,10 @@ export class SqliteSyncRepository implements SyncRepository {
       INSERT INTO lists (id, owner_sync_key, invite_token, hlc, payload_json)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        owner_sync_key = COALESCE(lists.owner_sync_key, excluded.owner_sync_key),
+        owner_sync_key = CASE
+          WHEN lists.owner_sync_key IS NULL OR lists.owner_sync_key = ? THEN excluded.owner_sync_key
+          ELSE lists.owner_sync_key
+        END,
         invite_token = excluded.invite_token,
         hlc = excluded.hlc,
         payload_json = excluded.payload_json
@@ -138,6 +150,17 @@ export class SqliteSyncRepository implements SyncRepository {
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      const maxListHlcRow = this.db.prepare('SELECT MAX(hlc) AS max_hlc FROM lists').get() as
+        | { max_hlc: string | null }
+        | undefined;
+      const maxTaskHlcRow = this.db.prepare('SELECT MAX(hlc) AS max_hlc FROM tasks').get() as
+        | { max_hlc: string | null }
+        | undefined;
+      let maxStoredHlc = pickHigherHlc(
+        maxListHlcRow?.max_hlc ?? null,
+        maxTaskHlcRow?.max_hlc ?? null,
+      );
+
       for (const incomingList of request.clientLists ?? []) {
         if (!requestedSet.has(incomingList.id)) continue;
         const row = selectListStmt.get(incomingList.id) as StoredListRow | undefined;
@@ -145,6 +168,7 @@ export class SqliteSyncRepository implements SyncRepository {
           !this.isListRowAuthorized(
             row,
             callerKey,
+            callerUserId,
             incomingList.id,
             request.inviteTokens,
             incomingList.inviteToken,
@@ -152,16 +176,27 @@ export class SqliteSyncRepository implements SyncRepository {
         ) {
           continue;
         }
-        const merged = row
-          ? mergeListLww(JSON.parse(row.payload_json) as TaskList, incomingList)
-          : incomingList;
-        const ownerKey = row?.owner_sync_key ?? callerKey;
+        const existingList = row ? (JSON.parse(row.payload_json) as TaskList) : null;
+        const merged = existingList ? mergeListLww(existingList, incomingList) : { ...incomingList };
+        const isLegacyOwner = Boolean(callerUserId && row?.owner_sync_key === callerUserId);
+        const ownerKey =
+          !row?.owner_sync_key || isLegacyOwner ? callerKey : row.owner_sync_key;
+        const ownerUpgraded = Boolean(row && row.owner_sync_key !== ownerKey);
+        const mergedJsonBeforeWatermark = JSON.stringify(merged);
+        const changed =
+          !row || ownerUpgraded || mergedJsonBeforeWatermark !== row.payload_json;
+        if (changed) {
+          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
+        }
+        maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
+
         upsertListStmt.run(
           merged.id,
           ownerKey,
           merged.inviteToken,
           merged.hlc,
           JSON.stringify(merged),
+          callerUserId,
         );
         acceptedCount += 1;
       }
@@ -170,15 +205,27 @@ export class SqliteSyncRepository implements SyncRepository {
         if (!requestedSet.has(incomingTask.listId)) continue;
         const listRow = selectListStmt.get(incomingTask.listId) as StoredListRow | undefined;
         if (
-          !this.isListRowAuthorized(listRow, callerKey, incomingTask.listId, request.inviteTokens)
+          !this.isListRowAuthorized(
+            listRow,
+            callerKey,
+            callerUserId,
+            incomingTask.listId,
+            request.inviteTokens,
+          )
         ) {
           continue;
         }
 
         const taskRow = selectTaskStmt.get(incomingTask.id) as { payload_json: string } | undefined;
-        const merged = taskRow
-          ? mergeTaskLww(JSON.parse(taskRow.payload_json) as TaskItem, incomingTask)
-          : incomingTask;
+        const existingTask = taskRow ? (JSON.parse(taskRow.payload_json) as TaskItem) : null;
+        const merged = existingTask ? mergeTaskLww(existingTask, incomingTask) : { ...incomingTask };
+        const mergedJsonBeforeWatermark = JSON.stringify(merged);
+        const changed = !taskRow || mergedJsonBeforeWatermark !== taskRow.payload_json;
+        if (changed) {
+          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
+        }
+        maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
+
         upsertTaskStmt.run(
           merged.id,
           merged.listId,
@@ -197,14 +244,14 @@ export class SqliteSyncRepository implements SyncRepository {
     const authorizedListIds = new Set<string>();
     for (const listId of requestedListIds) {
       const row = selectListStmt.get(listId) as StoredListRow | undefined;
-      if (this.isListRowAuthorized(row, callerKey, listId, request.inviteTokens)) {
+      if (this.isListRowAuthorized(row, callerKey, callerUserId, listId, request.inviteTokens)) {
         authorizedListIds.add(listId);
       }
     }
 
     const ownedRows = this.db
-      .prepare('SELECT id FROM lists WHERE owner_sync_key = ?')
-      .all(callerKey) as Array<{ id: string }>;
+      .prepare('SELECT id FROM lists WHERE owner_sync_key = ? OR owner_sync_key = ?')
+      .all(callerKey, callerUserId) as Array<{ id: string }>;
     for (const owned of ownedRows) {
       authorizedListIds.add(owned.id);
     }

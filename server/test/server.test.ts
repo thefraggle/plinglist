@@ -400,3 +400,54 @@ test('cloud webhook activates Stripe/RevenueCat entitlement in SQLite and unbloc
     repo.close();
   }
 });
+
+test('server upgrades legacy userId ownership to syncKey and advances watermark HLC for older offline tasks', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const hOld = formatHlc(5000, 0, 'dev-a');
+  const hNew = formatHlc(9000, 0, 'dev-b');
+
+  try {
+    // 1. Legacy v0.1.1 upload without syncKey (stored under userId 'usr-legacy-1')
+    await repo.applyAndPullDeltas({
+      userId: 'usr-legacy-1',
+      listIds: ['list-legacy'],
+      clientLists: [makeList('list-legacy', hOld, { title: 'Legacy Inbox' })],
+      clientTasks: [],
+    });
+
+    // 2. Device B pairs with syncKey 'pling-upgraded-1111' and syncs newer record at hNew
+    const devBFirst = await repo.applyAndPullDeltas({
+      userId: 'usr-dev-b',
+      syncKey: 'pling-upgraded-1111',
+      listIds: ['list-b'],
+      clientLists: [makeList('list-b', hNew, { title: 'Device B List' })],
+      clientTasks: [],
+    });
+    assert.ok(devBFirst.cursorHlc);
+
+    // 3. Legacy device upgrades to syncKey 'pling-upgraded-1111' while still sending userId 'usr-legacy-1'
+    //    and pushes an offline/older task with hOld < hNew
+    const devAUpgrade = await repo.applyAndPullDeltas({
+      userId: 'usr-legacy-1',
+      syncKey: 'pling-upgraded-1111',
+      listIds: ['list-legacy'],
+      clientLists: [makeList('list-legacy', hOld, { title: 'Legacy Inbox' })],
+      clientTasks: [makeTask('t-offline-old', hOld, { listId: 'list-legacy', title: 'Offline Task' })],
+    });
+    assert.equal(devAUpgrade.acceptedCount, 2);
+
+    // 4. Device B pulls with its previous cursorHlc (hNew) and MUST receive the older offline task & upgraded list
+    const devBSecond = await repo.applyAndPullDeltas({
+      userId: 'usr-dev-b',
+      syncKey: 'pling-upgraded-1111',
+      listIds: ['list-b'],
+      clientLists: [],
+      clientTasks: [],
+      sinceHlc: devBFirst.cursorHlc,
+    });
+    assert.ok(devBSecond.serverLists?.some((l) => l.id === 'list-legacy'));
+    assert.ok(devBSecond.serverTasks.some((t) => t.id === 't-offline-old'));
+  } finally {
+    repo.close();
+  }
+});

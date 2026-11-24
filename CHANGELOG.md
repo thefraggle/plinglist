@@ -2,6 +2,12 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.8] - 2026-11-24
+
+### Fixed
+- **Multi-Device Pairing & Duplicate Default Lists (`app/src/store.ts`, `app/src/web-app.ts`):** Added `consolidateWorkspaceLists()` on load, `setSyncKey()`, and `applyServerSync()` to merge legacy `list-tasks` / `list-groceries` and any duplicate workspace default lists into a single canonical pair (`list-tasks-<suffix>` / `list-groceries-<suffix>`) while remapping tasks cleanly. Also read `?pair=` before initializing `PlinglistStore` so fresh/incognito browsers never seed throwaway workspace IDs first. Service Worker bumped to `plinglist-app-v6`.
+- **Legacy Ownership Upgrade & Monotonic Server Watermark HLC (`server/src/sqlite-repo.ts`, `server/src/sync-engine.ts`):** Upgraded `owner_sync_key` from legacy `userId` (`usr-*`) to `syncKey` (`pling-*`) on sync and advanced the stored sync watermark HLC via a server `HlcClock` whenever newly inserted or modified records arrive with an older client/offline timestamp, preventing paired devices from missing older tasks.
+
 ## [0.1.7] - 2026-11-24
 
 ### Fixed

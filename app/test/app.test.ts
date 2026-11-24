@@ -344,3 +344,120 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
     repo.close();
   }
 });
+
+test('pairing consolidates legacy list-tasks/list-groceries without duplicates and syncs older tasks', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    // Simulate Browser A having legacy v0.1.1 localStorage with older timestamps & list-tasks/list-groceries IDs
+    const legacyStorage = createMemoryStorage();
+    legacyStorage.setItem(
+      'plinglist.local.v1',
+      JSON.stringify({
+        version: 1,
+        userId: 'usr-legacy-a',
+        syncKey: 'pling-main-1111',
+        cursorHlc: null,
+        locale: 'de',
+        serverUrl,
+        soundEnabled: true,
+        lists: [
+          {
+            id: 'list-tasks',
+            title: 'Aufgaben',
+            shared: true,
+            inviteToken: 'inv-old',
+            createdAt: '2026-11-23T08:00:00Z',
+            updatedAt: '2026-11-23T08:00:00Z',
+            deletedAt: null,
+            hlc: '001795450000000:00000:web-local',
+          },
+          {
+            id: 'list-groceries',
+            title: 'Einkauf',
+            shared: false,
+            inviteToken: null,
+            createdAt: '2026-11-23T08:00:00Z',
+            updatedAt: '2026-11-23T08:00:00Z',
+            deletedAt: null,
+            hlc: '001795450000000:00000:web-local',
+          },
+        ],
+        tasks: [
+          {
+            id: 'task-old-1',
+            listId: 'list-tasks',
+            title: 'Alter Task 1',
+            completed: false,
+            completedAt: null,
+            starred: true,
+            myDayDate: null,
+            dueDate: null,
+            reminderAt: null,
+            recurrence: null,
+            note: '',
+            steps: [],
+            createdAt: '2026-11-23T08:01:00Z',
+            updatedAt: '2026-11-23T08:01:00Z',
+            deletedAt: null,
+            hlc: '001795450001000:00000:web-local',
+          },
+          {
+            id: 'task-old-2',
+            listId: 'list-tasks',
+            title: 'Alter Task 2',
+            completed: false,
+            completedAt: null,
+            starred: false,
+            myDayDate: null,
+            dueDate: '2026-11-25',
+            reminderAt: null,
+            recurrence: null,
+            note: '',
+            steps: [],
+            createdAt: '2026-11-23T08:02:00Z',
+            updatedAt: '2026-11-23T08:02:00Z',
+            deletedAt: null,
+            hlc: '001795450002000:00000:web-local',
+          },
+        ],
+      }),
+    );
+
+    const browserA = new PlinglistStore({
+      storage: legacyStorage,
+      locale: 'de',
+      serverUrl,
+    });
+
+    // Browser B (Incognito) opens with ?pair=pling-main-1111 and syncs BEFORE Browser A pushes
+    const browserB = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+      syncKey: 'pling-main-1111',
+    });
+    assert.equal((await browserB.syncWithServer()).synced, true);
+
+    // Browser A syncs (pushes consolidated tasks/lists and pulls any B state)
+    assert.equal((await browserA.syncWithServer()).synced, true);
+    // Browser B syncs again and must pull Browser A's older tasks cleanly without duplicating default lists
+    assert.equal((await browserB.syncWithServer()).synced, true);
+
+    assert.equal(browserA.getActiveLists().length, 2);
+    assert.equal(browserB.getActiveLists().length, 2);
+    assert.equal(browserB.tasks.length, 2);
+    assert.ok(browserB.tasks.some((t) => t.title === 'Alter Task 1' && t.starred));
+    assert.ok(browserB.tasks.some((t) => t.title === 'Alter Task 2' && t.dueDate === '2026-11-25'));
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

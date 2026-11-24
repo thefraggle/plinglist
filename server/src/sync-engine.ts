@@ -1,4 +1,5 @@
 import {
+  HlcClock,
   compareHlc,
   mergeListLww,
   mergeTaskLww,
@@ -61,6 +62,60 @@ export class EntitlementRequiredError extends Error {
   }
 }
 
+export function isAuthorizedCaller(params: {
+  ownerKey: string | null | undefined;
+  callerKey: string;
+  callerUserId?: string;
+  shared: boolean;
+  storedInviteToken: string | null;
+  listId: string;
+  inviteTokens?: Record<string, string>;
+  incomingInviteToken?: string | null;
+}): boolean {
+  const {
+    ownerKey,
+    callerKey,
+    callerUserId,
+    shared,
+    storedInviteToken,
+    listId,
+    inviteTokens,
+    incomingInviteToken,
+  } = params;
+  if (
+    !ownerKey ||
+    ownerKey === callerKey ||
+    (Boolean(callerUserId) && ownerKey === callerUserId)
+  ) {
+    return true;
+  }
+  if (shared && storedInviteToken) {
+    const provided = inviteTokens?.[listId] ?? incomingInviteToken ?? null;
+    return provided === storedInviteToken;
+  }
+  return false;
+}
+
+export function pickHigherHlc(
+  a: HlcTimestamp | null,
+  b: HlcTimestamp | null,
+): HlcTimestamp | null {
+  if (!a) return b;
+  if (!b) return a;
+  return compareHlc(a, b) >= 0 ? a : b;
+}
+
+export function advanceWatermarkIfNeeded(
+  hlc: HlcTimestamp,
+  maxStoredHlc: HlcTimestamp | null,
+  serverClock: HlcClock,
+): HlcTimestamp {
+  if (maxStoredHlc && compareHlc(hlc, maxStoredHlc) <= 0) {
+    return serverClock.receive(maxStoredHlc, 0);
+  }
+  return hlc;
+}
+
 /**
  * In-memory sync repository with zero-auth capability-based workspace isolation.
  */
@@ -69,6 +124,7 @@ export class InMemorySyncRepository implements SyncRepository {
   private readonly ownerByListId = new Map<string, string>();
   private readonly tasksById = new Map<string, TaskItem>();
   private readonly entitlementsByUser = new Map<string, EntitlementRecord>();
+  private readonly serverClock = new HlcClock('server');
   private readonly guard?: CloudEntitlementGuard;
 
   constructor(guard?: CloudEntitlementGuard) {
@@ -86,6 +142,7 @@ export class InMemorySyncRepository implements SyncRepository {
   private isAuthorizedForList(
     listId: string,
     callerKey: string,
+    callerUserId: string,
     inviteTokens?: Record<string, string>,
     incomingInviteToken?: string | null,
   ): boolean {
@@ -93,24 +150,34 @@ export class InMemorySyncRepository implements SyncRepository {
     if (!existing) {
       return true;
     }
-    const owner = this.ownerByListId.get(listId);
-    if (!owner || owner === callerKey) {
-      return true;
-    }
-    if (existing.shared && existing.inviteToken) {
-      const provided = inviteTokens?.[listId] ?? incomingInviteToken ?? null;
-      return provided === existing.inviteToken;
-    }
-    return false;
+    return isAuthorizedCaller({
+      ownerKey: this.ownerByListId.get(listId),
+      callerKey,
+      callerUserId,
+      shared: existing.shared,
+      storedInviteToken: existing.inviteToken,
+      listId,
+      inviteTokens,
+      incomingInviteToken,
+    });
   }
 
   async applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse> {
-    const callerKey = request.syncKey?.trim() || request.userId;
+    const callerUserId = request.userId.trim();
+    const callerKey = request.syncKey?.trim() || callerUserId;
     if (this.guard) {
       const allowed = await this.guard(callerKey);
       if (!allowed) {
         throw new EntitlementRequiredError(callerKey);
       }
+    }
+
+    let maxStoredHlc: HlcTimestamp | null = null;
+    for (const list of this.listsById.values()) {
+      maxStoredHlc = pickHigherHlc(maxStoredHlc, list.hlc);
+    }
+    for (const task of this.tasksById.values()) {
+      maxStoredHlc = pickHigherHlc(maxStoredHlc, task.hlc);
     }
 
     const requestedLists = new Set(request.listIds);
@@ -122,6 +189,7 @@ export class InMemorySyncRepository implements SyncRepository {
         !this.isAuthorizedForList(
           incomingList.id,
           callerKey,
+          callerUserId,
           request.inviteTokens,
           incomingList.inviteToken,
         )
@@ -130,33 +198,46 @@ export class InMemorySyncRepository implements SyncRepository {
       }
 
       const existing = this.listsById.get(incomingList.id);
-      if (!existing) {
-        this.ownerByListId.set(incomingList.id, callerKey);
+      const existingOwner = this.ownerByListId.get(incomingList.id);
+      const isLegacyOwner = Boolean(callerUserId && existingOwner === callerUserId);
+      const nextOwner = !existingOwner || isLegacyOwner ? callerKey : existingOwner;
+      const ownerUpgraded = existingOwner !== nextOwner;
+      this.ownerByListId.set(incomingList.id, nextOwner);
+
+      const merged = existing ? mergeListLww(existing, incomingList) : { ...incomingList };
+      const changed = !existing || ownerUpgraded || JSON.stringify(merged) !== JSON.stringify(existing);
+      if (changed) {
+        merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
       }
-      const merged = existing ? mergeListLww(existing, incomingList) : incomingList;
+      maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
       this.listsById.set(incomingList.id, merged);
       acceptedCount += 1;
     }
 
     for (const incoming of request.clientTasks) {
       if (!requestedLists.has(incoming.listId)) continue;
-      if (!this.isAuthorizedForList(incoming.listId, callerKey, request.inviteTokens)) {
+      if (!this.isAuthorizedForList(incoming.listId, callerKey, callerUserId, request.inviteTokens)) {
         continue;
       }
       const existing = this.tasksById.get(incoming.id);
-      const merged = existing ? mergeTaskLww(existing, incoming) : incoming;
+      const merged = existing ? mergeTaskLww(existing, incoming) : { ...incoming };
+      const changed = !existing || JSON.stringify(merged) !== JSON.stringify(existing);
+      if (changed) {
+        merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
+      }
+      maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
       this.tasksById.set(incoming.id, merged);
       acceptedCount += 1;
     }
 
     const pullListIds = new Set<string>();
     for (const listId of requestedLists) {
-      if (this.isAuthorizedForList(listId, callerKey, request.inviteTokens)) {
+      if (this.isAuthorizedForList(listId, callerKey, callerUserId, request.inviteTokens)) {
         pullListIds.add(listId);
       }
     }
     for (const [listId, owner] of this.ownerByListId.entries()) {
-      if (owner === callerKey) {
+      if (owner === callerKey || (Boolean(callerUserId) && owner === callerUserId)) {
         pullListIds.add(listId);
       }
     }

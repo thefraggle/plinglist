@@ -183,9 +183,11 @@ const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
 function initApp(): void {
   let scheduleBackgroundSync = (): void => {};
   const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
+  const initialPairKey = new URLSearchParams(window.location.search).get('pair')?.trim();
   const store = new PlinglistStore({
     storage: window.localStorage,
     locale: browserLocale,
+    syncKey: initialPairKey && initialPairKey.length >= 8 ? initialPairKey : undefined,
     onLocalMutation: () => scheduleBackgroundSync(),
   });
 
