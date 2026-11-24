@@ -1088,8 +1088,11 @@ input[readonly] {
 }
 
 .sidebar-legal-row {
+  flex-wrap: nowrap;
   justify-content: center;
-  padding: 0.1rem 0.25rem;
+  gap: 0.25rem;
+  padding: 0.1rem 0.15rem;
+  white-space: nowrap;
 }
 
 button.link-inline,
@@ -1117,8 +1120,8 @@ a.link-inline:hover {
 .sidebar-legal-link {
   display: inline-flex;
   align-items: center;
-  min-height: 1.75rem;
-  padding: 0.15rem 0.1rem;
+  min-height: 1.5rem;
+  padding: 0.1rem 0;
   border: 0;
   border-radius: 0.25rem;
   box-shadow: none;
@@ -1132,23 +1135,6 @@ a.link-inline:hover {
 
 .sidebar-legal-link:hover {
   color: var(--brand);
-}
-
-.sidebar-legal-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.35rem;
-  color: var(--text-muted);
-  text-decoration: none;
-  transition: color 140ms ease, background-color 140ms ease;
-}
-
-.sidebar-legal-icon:hover {
-  color: var(--brand);
-  background-color: var(--bg-subtle);
 }
 
 .info-block {

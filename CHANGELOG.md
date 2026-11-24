@@ -2,6 +2,11 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.17] - 2026-11-24
+
+### Changed
+- **Single-Line Sidebar Footer (`app/index.html`, `app/styles.css`, `app/sw.js`):** Removed the redundant GitHub icon from `.sidebar-legal-row` (GitHub remains linked in *Settings* and *Imprint*) and set `flex-wrap: nowrap` / `white-space: nowrap` so `© 2026 Goork · Impressum · Datenschutz` stays cleanly on one line. Bumped Service Worker cache to `plinglist-app-v15`.
+
 ## [0.1.16] - 2026-11-24
 
 ### Added
