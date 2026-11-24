@@ -1,5 +1,6 @@
 import {
   HlcClock,
+  compareHlc,
   computeNextDueDate,
   importMicrosoftToDoCsv,
   importMicrosoftToDoJson,
@@ -32,6 +33,7 @@ export interface PlinglistPreferences {
   autoHideEmptySmartLists: boolean;
   showAllSmartList: boolean;
   telemetryEnabled: boolean;
+  syncEnabled: boolean;
 }
 
 export const DEFAULT_PREFERENCES: PlinglistPreferences = {
@@ -42,6 +44,7 @@ export const DEFAULT_PREFERENCES: PlinglistPreferences = {
   autoHideEmptySmartLists: false,
   showAllSmartList: false,
   telemetryEnabled: true,
+  syncEnabled: true,
 };
 
 interface PersistedState {
@@ -115,6 +118,7 @@ export class PlinglistStore {
   userId: string = createId('usr');
   syncKey: string = generateSyncKey();
   cursorHlc: HlcTimestamp | null = null;
+  private lastPushedHlc: HlcTimestamp | null = null;
   locale: SupportedLocale = 'de';
   serverUrl: string = getDefaultServerUrl();
   soundEnabled = true;
@@ -399,16 +403,36 @@ export class PlinglistStore {
     }
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
+    list.title = '';
+    list.shared = false;
+    list.inviteToken = null;
     list.deletedAt = nowIso;
     list.updatedAt = nowIso;
     list.hlc = hlc;
 
     for (const task of this.tasks) {
       if (task.listId === listId && task.deletedAt === null) {
+        task.title = '';
+        task.note = '';
+        task.steps = [];
+        task.dueDate = null;
+        task.reminderAt = null;
+        task.myDayDate = null;
+        task.starred = false;
         task.deletedAt = nowIso;
         task.updatedAt = nowIso;
         task.hlc = hlc;
-        task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
+        task.fieldHlcs = {
+          ...task.fieldHlcs,
+          title: hlc,
+          note: hlc,
+          steps: hlc,
+          dueDate: hlc,
+          reminderAt: hlc,
+          myDayDate: hlc,
+          starred: hlc,
+          deletedAt: hlc,
+        };
       }
     }
     this.persist();
@@ -668,10 +692,27 @@ export class PlinglistStore {
     const task = this.requireTask(taskId);
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
+    task.title = '';
+    task.note = '';
+    task.steps = [];
+    task.dueDate = null;
+    task.reminderAt = null;
+    task.myDayDate = null;
+    task.starred = false;
     task.deletedAt = nowIso;
     task.updatedAt = nowIso;
     task.hlc = hlc;
-    task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
+    task.fieldHlcs = {
+      ...task.fieldHlcs,
+      title: hlc,
+      note: hlc,
+      steps: hlc,
+      dueDate: hlc,
+      reminderAt: hlc,
+      myDayDate: hlc,
+      starred: hlc,
+      deletedAt: hlc,
+    };
     this.persist();
   }
 
@@ -728,6 +769,10 @@ export class PlinglistStore {
 
   setServerUrl(url: string): string {
     const normalized = normalizeServerUrl(url);
+    if (normalized !== this.serverUrl) {
+      this.cursorHlc = null;
+      this.lastPushedHlc = null;
+    }
     this.serverUrl = normalized;
     this.persist();
     return normalized;
@@ -764,6 +809,7 @@ export class PlinglistStore {
     const prevSyncKey = this.syncKey;
     this.syncKey = clean;
     this.cursorHlc = null;
+    this.lastPushedHlc = null;
 
     this.consolidateWorkspaceLists();
     if (clean !== prevSyncKey) {
@@ -839,12 +885,25 @@ export class PlinglistStore {
   async syncWithServer(
     fetchFn: typeof fetch = globalThis.fetch,
   ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number; revokedLists: number }> {
+    if (!this.preferences.syncEnabled) {
+      return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
+    }
+
     const inviteTokens: Record<string, string> = {};
     for (const list of this.lists) {
       if (list.inviteToken) {
         inviteTokens[list.id] = list.inviteToken;
       }
     }
+
+    const sendFullSnapshot = this.cursorHlc === null || this.lastPushedHlc === null;
+    const pushedThreshold = this.lastPushedHlc;
+    const clientLists = sendFullSnapshot
+      ? this.lists
+      : this.lists.filter((l) => compareHlc(l.hlc, pushedThreshold!) > 0);
+    const clientTasks = sendFullSnapshot
+      ? this.tasks
+      : this.tasks.filter((t) => compareHlc(t.hlc, pushedThreshold!) > 0);
 
     try {
       const response = await fetchFn(`${this.serverUrl}/api/v1/sync`, {
@@ -855,8 +914,8 @@ export class PlinglistStore {
           syncKey: this.syncKey,
           inviteTokens,
           listIds: this.lists.map((l) => l.id),
-          clientLists: this.lists,
-          clientTasks: this.tasks,
+          clientLists,
+          clientTasks,
           sinceHlc: this.cursorHlc,
         }),
       });
@@ -870,10 +929,46 @@ export class PlinglistStore {
         cursorHlc: HlcTimestamp | null;
       };
       const applied = this.applyServerSync(data);
+      let maxHlc = this.lastPushedHlc;
+      const bump = (candidate: HlcTimestamp | null | undefined): void => {
+        if (candidate && (!maxHlc || compareHlc(candidate, maxHlc) > 0)) {
+          maxHlc = candidate;
+        }
+      };
+      bump(data.cursorHlc);
+      for (const l of this.lists) bump(l.hlc);
+      for (const t of this.tasks) bump(t.hlc);
+      this.lastPushedHlc = maxHlc;
       return { synced: true, ...applied };
     } catch {
       return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
     }
+  }
+
+  async deleteCloudAndResetLocal(fetchFn: typeof fetch = globalThis.fetch): Promise<boolean> {
+    let remoteDeleted = false;
+    try {
+      const response = await fetchFn(`${this.serverUrl}/api/v1/sync`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: this.userId,
+          syncKey: this.syncKey,
+        }),
+      });
+      remoteDeleted = response.ok;
+    } catch {
+      remoteDeleted = false;
+    }
+
+    this.userId = createId('usr');
+    this.syncKey = generateSyncKey();
+    this.cursorHlc = null;
+    this.lastPushedHlc = null;
+    this.tasks = [];
+    this.seedDefaults();
+    this.persist(true);
+    return remoteDeleted;
   }
 
   async joinSharedListByToken(
@@ -902,6 +997,7 @@ export class PlinglistStore {
       this.lists.push(joined);
     }
     this.cursorHlc = null;
+    this.lastPushedHlc = null;
     this.persist();
 
     await this.syncWithServer(fetchFn);

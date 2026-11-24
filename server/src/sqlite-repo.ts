@@ -328,6 +328,33 @@ export class SqliteSyncRepository implements SyncRepository {
     return list;
   }
 
+  async deleteWorkspace(syncKey: string, userId?: string): Promise<number> {
+    const cleanKey = syncKey.trim();
+    const cleanUserId = userId?.trim() || '';
+    if (!cleanKey && !cleanUserId) return 0;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const ownedRows = this.db
+        .prepare('SELECT id FROM lists WHERE owner_sync_key = ? OR (? != \'\' AND owner_sync_key = ?)')
+        .all(cleanKey, cleanUserId, cleanUserId) as Array<{ id: string }>;
+      const ownedIds = ownedRows.map((row) => row.id);
+      if (ownedIds.length > 0) {
+        const placeholders = ownedIds.map(() => '?').join(', ');
+        this.db.prepare(`DELETE FROM tasks WHERE list_id IN (${placeholders})`).run(...ownedIds);
+        this.db.prepare(`DELETE FROM lists WHERE id IN (${placeholders})`).run(...ownedIds);
+      }
+      if (cleanKey) {
+        this.db.prepare('DELETE FROM entitlements WHERE user_key = ?').run(cleanKey);
+      }
+      this.db.exec('COMMIT');
+      return ownedIds.length;
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
   upsertEntitlement(state: EntitlementRecord): void {
     const cleanKey = state.userId.trim();
     if (!cleanKey) {

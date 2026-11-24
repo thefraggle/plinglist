@@ -25,7 +25,7 @@ const MIME_TYPES: Record<string, string> = {
 
 const API_CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -157,6 +157,26 @@ export function createServerApp(
       return;
     }
 
+    if (method === 'DELETE' && pathname === '/api/v1/sync') {
+      try {
+        const body = await readJsonBody<{ userId?: string; syncKey?: string }>(req);
+        const callerUserId = body.userId?.trim() || '';
+        const callerKey = body.syncKey?.trim() || callerUserId;
+        if (!callerKey) {
+          sendJson(res, 400, { error: 'MISSING_WORKSPACE_KEY' });
+          return;
+        }
+        const deletedLists = (await repo.deleteWorkspace?.(callerKey, callerUserId)) ?? 0;
+        sendJson(res, 200, { ok: true, deletedLists });
+      } catch (err) {
+        sendJson(res, 400, {
+          error: 'INVALID_DELETE_REQUEST',
+          message: err instanceof Error ? err.message : 'Bad request',
+        });
+      }
+      return;
+    }
+
     const webhookMatch = pathname.match(/^\/api\/v1\/cloud\/webhooks\/(stripe|revenuecat)$/);
     if (config.cloudExtensionEnabled && method === 'POST' && webhookMatch) {
       if (
@@ -204,22 +224,25 @@ export function createServerApp(
     }
 
     if (method === 'GET' || method === 'HEAD') {
-      const normalizedPath = pathname === '/' ? '/index.html' : pathname;
+      const normalizedPath = pathname === '/' || pathname === '/index.html' ? '/index.html' : pathname;
       const safeRelPath = path.posix.normalize(normalizedPath).replace(/^\/+/, '');
-      let targetFile = path.resolve(distDir, safeRelPath);
+      const targetFile = path.resolve(distDir, safeRelPath);
+      const isInsideDist =
+        targetFile === distDir || targetFile.startsWith(`${distDir}${path.sep}`);
 
       if (
-        !targetFile.startsWith(distDir) ||
-        !fs.existsSync(targetFile) ||
-        fs.statSync(targetFile).isDirectory()
+        isInsideDist &&
+        fs.existsSync(targetFile) &&
+        fs.statSync(targetFile).isFile()
       ) {
-        targetFile = path.join(distDir, 'index.html');
-      }
-
-      if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
         const ext = path.extname(targetFile);
         const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType });
+        const isMutableEntry =
+          ext === '.html' || path.basename(targetFile) === 'sw.js' || ext === '.webmanifest';
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': isMutableEntry ? 'no-cache' : 'public, max-age=3600',
+        });
         if (method === 'HEAD') {
           res.end();
         } else {
@@ -227,6 +250,34 @@ export function createServerApp(
         }
         return;
       }
+
+      if (path.extname(pathname) !== '') {
+        sendJson(res, 404, { error: 'NOT_FOUND' });
+        return;
+      }
+
+      const notFoundHtml = [
+        '<!doctype html>',
+        '<html lang="de">',
+        '<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />',
+        '<title>404 — Plinglist</title><link rel="icon" type="image/svg+xml" href="/favicon.svg" />',
+        '<link rel="stylesheet" href="/styles.css" /></head>',
+        '<body><main class="main-view">',
+        '<h1>404 — Seite nicht gefunden</h1>',
+        '<p class="empty-state">Dieser Pfad existiert auf Plinglist nicht.</p>',
+        '<p><a href="/" class="btn-primary btn-compact">Zurück zu Plinglist</a></p>',
+        '</main></body></html>',
+      ].join('');
+      res.writeHead(404, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      if (method === 'HEAD') {
+        res.end();
+      } else {
+        res.end(notFoundHtml);
+      }
+      return;
     }
 
     sendJson(res, 404, { error: 'NOT_FOUND' });

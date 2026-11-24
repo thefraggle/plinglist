@@ -4,6 +4,7 @@ import {
   HlcClock,
   compareHlc,
   computeNextDueDate,
+  filterTasksByQuery,
   formatHlc,
   getAllOpenTasks,
   getDueReminderTasks,
@@ -299,4 +300,28 @@ test('getMyDayTasks includeDueToday, getAllOpenTasks, and sortTasksForView work 
     sortTasksForView([dueTodayTask, starredLater], false).map((t) => t.id),
     ['t-due-today', 't-starred'],
   );
+});
+
+test('filterTasksByQuery matches title, note, and step titles case-insensitively', () => {
+  const t1 = makeTask({
+    id: 't1',
+    title: 'Kaffeebohnen kaufen',
+    note: 'Rösterei um die Ecke',
+    steps: [{ id: 's1', title: 'Espresso-Mahlgrad prüfen', completed: false, position: 0 }],
+  });
+  const t2 = makeTask({
+    id: 't2',
+    title: 'Steuererklärung',
+    note: 'Belege sortieren',
+    steps: [],
+  });
+  const tasks = [t1, t2];
+
+  assert.deepEqual(filterTasksByQuery(tasks, '').map((t) => t.id), ['t1', 't2']);
+  assert.deepEqual(filterTasksByQuery(tasks, '  ').map((t) => t.id), ['t1', 't2']);
+  assert.deepEqual(filterTasksByQuery(tasks, 'KAFFEE').map((t) => t.id), ['t1']);
+  assert.deepEqual(filterTasksByQuery(tasks, 'rösterei').map((t) => t.id), ['t1']);
+  assert.deepEqual(filterTasksByQuery(tasks, 'MAHLGRAD').map((t) => t.id), ['t1']);
+  assert.deepEqual(filterTasksByQuery(tasks, 'belege').map((t) => t.id), ['t2']);
+  assert.deepEqual(filterTasksByQuery(tasks, 'unbekannt'), []);
 });

@@ -478,3 +478,62 @@ test('server upgrades legacy userId ownership to syncKey and advances watermark 
     repo.close();
   }
 });
+
+test('server supports DELETE /api/v1/sync workspace erasure and returns real 404 for unknown routes/assets', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const h1 = formatHlc(9100, 0, 'dev-a');
+
+    await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'u-del',
+        syncKey: 'pling-delete-key-1',
+        listIds: ['list-del'],
+        clientLists: [makeList('list-del', h1, { title: 'Privat' })],
+        clientTasks: [makeTask('t-del', h1, { listId: 'list-del', title: 'Geheim' })],
+      }),
+    });
+
+    const delRes = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: 'u-del', syncKey: 'pling-delete-key-1' }),
+    });
+    assert.equal(delRes.status, 200);
+    const delBody = (await delRes.json()) as { ok: boolean; deletedLists: number };
+    assert.equal(delBody.ok, true);
+    assert.equal(delBody.deletedLists, 1);
+
+    const pullAfter = await repo.applyAndPullDeltas({
+      userId: 'u-del',
+      syncKey: 'pling-delete-key-1',
+      listIds: [],
+      clientLists: [],
+      clientTasks: [],
+    });
+    assert.equal(pullAfter.serverLists?.length, 0);
+    assert.equal(pullAfter.serverTasks.length, 0);
+
+    const missingAsset = await fetch(`${baseUrl}/missing-asset.js`);
+    assert.equal(missingAsset.status, 404);
+
+    const missingPage = await fetch(`${baseUrl}/unknown-route`);
+    assert.equal(missingPage.status, 404);
+    assert.match(missingPage.headers.get('content-type') ?? '', /text\/html/);
+    const html = await missingPage.text();
+    assert.match(html, /404/);
+    assert.match(html, /href="\/"/);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

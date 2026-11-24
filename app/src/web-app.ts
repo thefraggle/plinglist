@@ -1,4 +1,5 @@
 import {
+  filterTasksByQuery,
   getAllOpenTasks,
   getDueReminderTasks,
   getListTasks,
@@ -200,7 +201,8 @@ const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
 function initApp(): void {
   let scheduleBackgroundSync = (): void => {};
   const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
-  const initialPairKey = new URLSearchParams(window.location.search).get('pair')?.trim();
+  const startupParams = new URLSearchParams(window.location.search);
+  const initialPairKey = startupParams.get('pair')?.trim();
   const store = new PlinglistStore({
     storage: window.localStorage,
     locale: browserLocale,
@@ -208,33 +210,107 @@ function initApp(): void {
     onLocalMutation: () => scheduleBackgroundSync(),
   });
 
-  let activeView: SmartViewId = 'my-day';
-  let activeListId = store.getDefaultTasksListId();
+  const VALID_VIEWS: ReadonlySet<SmartViewId> = new Set([
+    'my-day',
+    'starred',
+    'planned',
+    'all',
+    'tasks',
+    'lists',
+  ]);
+  const initialViewParam = startupParams.get('view') as SmartViewId | null;
+  let activeView: SmartViewId =
+    initialViewParam && VALID_VIEWS.has(initialViewParam) ? initialViewParam : 'my-day';
+  const initialListParam = startupParams.get('list')?.trim();
+  let activeListId =
+    initialListParam && store.getActiveLists().some((l) => l.id === initialListParam)
+      ? initialListParam
+      : store.getDefaultTasksListId();
+  let searchQuery = startupParams.get('q') ?? '';
   let quickAddStarred = false;
   let editingTaskId: string | null = null;
   let hasSyncedOnce = false;
   let syncInFlight = false;
   let syncDebounceTimer: number | undefined;
+  let searchDebounceTimer: number | undefined;
+  let lastAppliedLocale: string | null = null;
+  let lastDrawerTrigger: HTMLElement | null = null;
 
   const sidebar = document.getElementById('appSidebar') as HTMLElement;
   const sidebarBackdrop = document.getElementById('sidebarBackdrop') as HTMLElement;
   const openSidebarBtn = document.getElementById('openSidebarBtn') as HTMLButtonElement;
+  const mobileListsBtn = document.getElementById('mobileListsBtn') as HTMLButtonElement | null;
+  const mainViewEl = document.querySelector<HTMLElement>('.main-view');
+  const mobileBarEl = document.querySelector<HTMLElement>('.mobile-tab-bar');
+  const searchInput = document.getElementById('taskSearchInput') as HTMLInputElement | null;
+  const clearSearchBtn = document.getElementById('clearSearchBtn') as HTMLButtonElement | null;
+  if (searchInput && searchQuery) {
+    searchInput.value = searchQuery;
+  }
 
-  function openMobileDrawer(): void {
+  function syncUrlState(): void {
+    const params = new URLSearchParams(window.location.search);
+    if (activeView === 'my-day') {
+      params.delete('view');
+    } else {
+      params.set('view', activeView);
+    }
+    if (activeView === 'lists' && activeListId) {
+      params.set('list', activeListId);
+    } else {
+      params.delete('list');
+    }
+    const cleanQ = searchQuery.trim();
+    if (cleanQ) {
+      params.set('q', cleanQ);
+    } else {
+      params.delete('q');
+    }
+    const queryStr = params.toString();
+    const nextUrl = `${window.location.pathname}${queryStr ? `?${queryStr}` : ''}${window.location.hash}`;
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }
+
+  function openMobileDrawer(trigger: HTMLElement = openSidebarBtn): void {
+    lastDrawerTrigger = trigger;
     sidebar.classList.add('is-open');
+    sidebar.setAttribute('role', 'dialog');
+    sidebar.setAttribute('aria-modal', 'true');
     sidebarBackdrop.hidden = false;
+    if (mainViewEl) mainViewEl.inert = true;
+    if (mobileBarEl) mobileBarEl.inert = true;
     openSidebarBtn.setAttribute('aria-expanded', 'true');
+    mobileListsBtn?.setAttribute('aria-expanded', 'true');
+    document.getElementById('closeSidebarBtn')?.focus();
   }
 
   function closeMobileDrawer(): void {
+    const wasOpen = sidebar.classList.contains('is-open');
     sidebar.classList.remove('is-open');
+    sidebar.removeAttribute('role');
+    sidebar.removeAttribute('aria-modal');
     sidebarBackdrop.hidden = true;
+    if (mainViewEl) mainViewEl.inert = false;
+    if (mobileBarEl) mobileBarEl.inert = false;
     openSidebarBtn.setAttribute('aria-expanded', 'false');
+    mobileListsBtn?.setAttribute('aria-expanded', 'false');
+    if (wasOpen) {
+      lastDrawerTrigger?.focus();
+    }
+    lastDrawerTrigger = null;
   }
 
-  openSidebarBtn.addEventListener('click', openMobileDrawer);
+  openSidebarBtn.addEventListener('click', () => openMobileDrawer(openSidebarBtn));
   document.getElementById('closeSidebarBtn')?.addEventListener('click', closeMobileDrawer);
-  document.getElementById('mobileListsBtn')?.addEventListener('click', openMobileDrawer);
+  mobileListsBtn?.addEventListener('click', () => {
+    if (sidebar.classList.contains('is-open')) {
+      closeMobileDrawer();
+    } else {
+      openMobileDrawer(mobileListsBtn);
+    }
+  });
   sidebarBackdrop.addEventListener('click', closeMobileDrawer);
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
@@ -415,28 +491,43 @@ function initApp(): void {
   }
 
   function applyTranslations(): void {
-    document.documentElement.lang = store.locale;
-    document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
-      const key = el.dataset.i18n as TranslationKey;
-      el.textContent = t(store.locale, key);
-    });
-    document
-      .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]')
-      .forEach((el) => {
-        const key = el.dataset.i18nPlaceholder as TranslationKey;
-        el.placeholder = t(store.locale, key);
+    if (lastAppliedLocale !== store.locale) {
+      lastAppliedLocale = store.locale;
+      document.documentElement.lang = store.locale;
+      document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
+        const key = el.dataset.i18n as TranslationKey;
+        el.textContent = t(store.locale, key);
       });
-    document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => {
-      const key = el.dataset.i18nAria as TranslationKey;
-      const label = t(store.locale, key);
-      el.setAttribute('aria-label', label);
-      el.title = label;
-    });
+      document
+        .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]')
+        .forEach((el) => {
+          const key = el.dataset.i18nPlaceholder as TranslationKey;
+          el.placeholder = t(store.locale, key);
+        });
+      document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => {
+        const key = el.dataset.i18nAria as TranslationKey;
+        const label = t(store.locale, key);
+        el.setAttribute('aria-label', label);
+        el.title = label;
+      });
+    }
 
     updateSyncLabels();
   }
 
-  function createTaskElement(task: TaskItem, isSuggestion = false): HTMLLIElement {
+  const RECURRENCE_LABEL_KEYS: Record<RecurrencePattern, TranslationKey> = {
+    daily: 'task.recurrenceDaily',
+    weekdays: 'task.recurrenceWeekdays',
+    weekly: 'task.recurrenceWeekly',
+    monthly: 'task.recurrenceMonthly',
+    yearly: 'task.recurrenceYearly',
+  };
+
+  function createTaskElement(
+    task: TaskItem,
+    isSuggestion = false,
+    listTitleById?: ReadonlyMap<string, string>,
+  ): HTMLLIElement {
     const li = document.createElement('li');
     li.className = `task-row${task.completed ? ' is-completed' : ''}`;
 
@@ -454,6 +545,7 @@ function initApp(): void {
     } else {
       leftBtn.className = 'task-check-btn';
       leftBtn.setAttribute('aria-label', t(store.locale, 'task.completeAria'));
+      leftBtn.setAttribute('aria-pressed', String(task.completed));
       const circle = document.createElement('span');
       circle.className = 'task-check-circle';
       circle.setAttribute('aria-hidden', 'true');
@@ -488,12 +580,17 @@ function initApp(): void {
     mainBtn.appendChild(titleSpan);
 
     const metaParts: string[] = [];
+    if (listTitleById && activeView !== 'lists') {
+      const listName = listTitleById.get(task.listId);
+      if (listName) metaParts.push(listName);
+    }
     if (task.steps.length > 0) {
       const doneSteps = task.steps.filter((s) => s.completed).length;
       metaParts.push(`${doneSteps}/${task.steps.length} ${t(store.locale, 'task.steps')}`);
     }
     if (task.dueDate) metaParts.push(task.dueDate);
-    if (task.recurrence) metaParts.push(`↻ ${task.recurrence}`);
+    if (task.reminderAt) metaParts.push('⏰');
+    if (task.recurrence) metaParts.push(`↻ ${t(store.locale, RECURRENCE_LABEL_KEYS[task.recurrence])}`);
     if (task.note.trim()) metaParts.push('📝');
 
     if (metaParts.length > 0) {
@@ -527,6 +624,8 @@ function initApp(): void {
     if (!activeLists.some((l) => l.id === activeListId)) {
       activeListId = customLists[0]?.id ?? defaultTasksId;
     }
+    const listTitleById = new Map(activeLists.map((l) => [l.id, l.title]));
+    syncUrlState();
 
     const myDayItems = getMyDayTasks(
       store.tasks,
@@ -559,23 +658,30 @@ function initApp(): void {
     const navStarred = document.getElementById('navSmartStarred') as HTMLButtonElement | null;
     const navPlanned = document.getElementById('navSmartPlanned') as HTMLButtonElement | null;
     const navAll = document.getElementById('navSmartAll') as HTMLButtonElement | null;
+    const hideStarred =
+      store.preferences.autoHideEmptySmartLists &&
+      openStarredCount === 0 &&
+      activeView !== 'starred';
+    const hidePlanned =
+      store.preferences.autoHideEmptySmartLists &&
+      openPlannedCount === 0 &&
+      activeView !== 'planned';
     if (navStarred) {
-      navStarred.hidden =
-        store.preferences.autoHideEmptySmartLists &&
-        openStarredCount === 0 &&
-        activeView !== 'starred';
+      navStarred.hidden = hideStarred;
     }
     if (navPlanned) {
-      navPlanned.hidden =
-        store.preferences.autoHideEmptySmartLists &&
-        openPlannedCount === 0 &&
-        activeView !== 'planned';
+      navPlanned.hidden = hidePlanned;
     }
     if (navAll) {
       const hiddenByPref = !store.preferences.showAllSmartList;
       const hiddenByEmpty = store.preferences.autoHideEmptySmartLists && openAllCount === 0;
       navAll.hidden = (hiddenByPref || hiddenByEmpty) && activeView !== 'all';
     }
+
+    const mobileStarredTab = document.querySelector<HTMLButtonElement>('[data-mobile-view="starred"]');
+    const mobilePlannedTab = document.querySelector<HTMLButtonElement>('[data-mobile-view="planned"]');
+    if (mobileStarredTab) mobileStarredTab.hidden = hideStarred;
+    if (mobilePlannedTab) mobilePlannedTab.hidden = hidePlanned;
 
     document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
       const isCurrent = btn.dataset.view === activeView;
@@ -586,7 +692,6 @@ function initApp(): void {
       const isCurrent = btn.dataset.mobileView === activeView;
       btn.setAttribute('aria-current', isCurrent ? 'page' : 'false');
     });
-    const mobileListsBtn = document.getElementById('mobileListsBtn');
     mobileListsBtn?.setAttribute(
       'aria-current',
       activeView === 'lists' || activeView === 'tasks' || activeView === 'all' ? 'page' : 'false',
@@ -672,28 +777,41 @@ function initApp(): void {
     }
 
     const suggestionsList = document.getElementById('suggestionsList') as HTMLUListElement;
-    suggestionsList.replaceChildren(...suggestions.map((item) => createTaskElement(item, true)));
+    suggestionsList.replaceChildren(
+      ...suggestions.map((item) => createTaskElement(item, true, listTitleById)),
+    );
     (document.getElementById('suggestionsCount') as HTMLElement).textContent = String(
       suggestions.length,
     );
 
+    const hasSearch = searchQuery.trim().length > 0;
+    if (clearSearchBtn) clearSearchBtn.hidden = !hasSearch;
+    const filteredVisible = filterTasksByQuery(visibleTasks, searchQuery);
+
     const openTasks = sortTasksForView(
-      visibleTasks.filter((item) => !item.completed),
+      filteredVisible.filter((item) => !item.completed),
       store.preferences.moveStarredToTop,
     );
-    const doneTasks = visibleTasks.filter((item) => item.completed);
+    const doneTasks = filteredVisible.filter((item) => item.completed);
 
     const activeListEl = document.getElementById('activeTasksList') as HTMLUListElement;
-    activeListEl.replaceChildren(...openTasks.map((item) => createTaskElement(item)));
+    activeListEl.replaceChildren(
+      ...openTasks.map((item) => createTaskElement(item, false, listTitleById)),
+    );
 
     const emptyEl = document.getElementById('emptyStateText') as HTMLElement;
     emptyEl.hidden = openTasks.length > 0;
+    emptyEl.textContent = hasSearch
+      ? t(store.locale, 'task.emptySearch')
+      : t(store.locale, 'task.emptyView');
 
     const completedSection = document.getElementById('completedSection') as HTMLElement;
     const completedListEl = document.getElementById('completedTasksList') as HTMLUListElement;
     completedSection.hidden = doneTasks.length === 0;
     (document.getElementById('completedCount') as HTMLElement).textContent = String(doneTasks.length);
-    completedListEl.replaceChildren(...doneTasks.map((item) => createTaskElement(item)));
+    completedListEl.replaceChildren(
+      ...doneTasks.map((item) => createTaskElement(item, false, listTitleById)),
+    );
   }
 
   function refreshShareDialogState(listId: string): void {
@@ -757,6 +875,11 @@ function initApp(): void {
       toggleBtn.type = 'button';
       toggleBtn.className = 'btn-secondary btn-compact';
       toggleBtn.textContent = step.completed ? '✓' : '○';
+      toggleBtn.setAttribute('aria-pressed', String(step.completed));
+      toggleBtn.setAttribute(
+        'aria-label',
+        `${t(store.locale, 'task.stepToggleAria')}: ${step.title}`,
+      );
       toggleBtn.addEventListener('click', () => {
         const updated = store.toggleTaskStep(task.id, step.id);
         renderDetailSteps(updated);
@@ -771,6 +894,10 @@ function initApp(): void {
       removeBtn.type = 'button';
       removeBtn.className = 'btn-ghost btn-compact';
       removeBtn.textContent = '×';
+      removeBtn.setAttribute(
+        'aria-label',
+        `${t(store.locale, 'task.stepDeleteAria')}: ${step.title}`,
+      );
       removeBtn.addEventListener('click', () => {
         const updated = store.deleteTaskStep(task.id, step.id);
         renderDetailSteps(updated);
@@ -795,18 +922,35 @@ function initApp(): void {
     (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value =
       task.recurrence ?? '';
     (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value = task.note;
+    (document.getElementById('detailNewStepInput') as HTMLInputElement).value = '';
+
+    const listSelect = document.getElementById('detailListSelect') as HTMLSelectElement | null;
+    if (listSelect) {
+      listSelect.replaceChildren();
+      for (const list of store.getActiveLists()) {
+        const opt = document.createElement('option');
+        opt.value = list.id;
+        opt.textContent = list.title;
+        listSelect.appendChild(opt);
+      }
+      listSelect.value = task.listId;
+    }
 
     const myDayBtn = document.getElementById('detailMyDayBtn') as HTMLButtonElement;
-    myDayBtn.textContent =
-      task.myDayDate === today
-        ? t(store.locale, 'myDay.removeFromMyDay')
-        : t(store.locale, 'myDay.addToMyDay');
+    const inMyDay = task.myDayDate === today;
+    myDayBtn.setAttribute('aria-pressed', String(inMyDay));
+    myDayBtn.textContent = inMyDay
+      ? t(store.locale, 'myDay.removeFromMyDay')
+      : t(store.locale, 'myDay.addToMyDay');
 
     const starBtn = document.getElementById('detailStarBtn') as HTMLButtonElement;
+    starBtn.setAttribute('aria-pressed', String(task.starred));
     starBtn.textContent = `${task.starred ? '★' : '☆'} ${t(store.locale, 'nav.starred')}`;
 
     renderDetailSteps(task);
-    taskDialog.showModal();
+    if (!taskDialog.open) {
+      taskDialog.showModal();
+    }
   }
 
   document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
@@ -820,8 +964,40 @@ function initApp(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-mobile-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
       activeView = btn.dataset.mobileView as SmartViewId;
+      closeMobileDrawer();
       render();
     });
+  });
+
+  searchInput?.addEventListener('input', () => {
+    window.clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = window.setTimeout(() => {
+      searchQuery = searchInput.value;
+      render();
+    }, 150);
+  });
+
+  clearSearchBtn?.addEventListener('click', () => {
+    window.clearTimeout(searchDebounceTimer);
+    searchQuery = '';
+    if (searchInput) {
+      searchInput.value = '';
+      searchInput.focus();
+    }
+    render();
+  });
+
+  window.addEventListener('popstate', () => {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('view') as SmartViewId | null;
+    activeView = v && VALID_VIEWS.has(v) ? v : 'my-day';
+    const l = params.get('list')?.trim();
+    if (l && store.getActiveLists().some((item) => item.id === l)) {
+      activeListId = l;
+    }
+    searchQuery = params.get('q') ?? '';
+    if (searchInput) searchInput.value = searchQuery;
+    render();
   });
 
   document.getElementById('newListForm')?.addEventListener('submit', (event) => {
@@ -904,10 +1080,30 @@ function initApp(): void {
     });
   });
 
+  async function copyWithFeedback(
+    text: string,
+    fallbackInput: HTMLInputElement | null,
+    successToastKey: TranslationKey,
+  ): Promise<void> {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.writeText(text);
+      showToast(t(store.locale, successToastKey));
+    } catch {
+      if (fallbackInput) {
+        fallbackInput.focus();
+        fallbackInput.select();
+      }
+      showToast(t(store.locale, 'toast.copyFallback'));
+    }
+  }
+
   document.getElementById('copySettingsPairUrlBtn')?.addEventListener('click', async () => {
     const pairUrl = store.getPairingUrl(window.location.origin);
-    await navigator.clipboard?.writeText(pairUrl).catch(() => undefined);
-    showToast(t(store.locale, 'share.pairCopied'));
+    const input = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
+    await copyWithFeedback(pairUrl, input, 'share.pairCopied');
   });
 
   document.getElementById('shareListBtn')?.addEventListener('click', openShareModal);
@@ -915,21 +1111,29 @@ function initApp(): void {
     refreshShareDialogState((event.target as HTMLSelectElement).value);
   });
 
-  document.getElementById('copyInviteUrlBtn')?.addEventListener('click', async () => {
+  document.getElementById('copyInviteUrlBtn')?.addEventListener('click', async (event) => {
+    const btn = event.currentTarget as HTMLButtonElement;
     const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
-    const { inviteUrl } = store.shareList(listId, window.location.origin);
-    refreshShareDialogState(listId);
-    render();
-    void runSyncNow();
-    trackDiagnostic('list_shared');
-    await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
-    showToast(t(store.locale, 'list.inviteCopied'));
+    btn.dataset.loading = 'true';
+    btn.disabled = true;
+    try {
+      const { inviteUrl } = store.shareList(listId, window.location.origin);
+      refreshShareDialogState(listId);
+      render();
+      void runSyncNow();
+      trackDiagnostic('list_shared');
+      const input = document.getElementById('shareInviteUrlInput') as HTMLInputElement | null;
+      await copyWithFeedback(inviteUrl, input, 'list.inviteCopied');
+    } finally {
+      delete btn.dataset.loading;
+      btn.disabled = false;
+    }
   });
 
   document.getElementById('copyPairUrlBtn')?.addEventListener('click', async () => {
-    const val = (document.getElementById('sharePairUrlInput') as HTMLInputElement).value;
-    await navigator.clipboard?.writeText(val).catch(() => undefined);
-    showToast(t(store.locale, 'share.pairCopied'));
+    const input = document.getElementById('sharePairUrlInput') as HTMLInputElement | null;
+    const val = input?.value ?? '';
+    await copyWithFeedback(val, input, 'share.pairCopied');
   });
 
   document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
@@ -973,7 +1177,7 @@ function initApp(): void {
     render();
   });
 
-  document.getElementById('detailAddStepBtn')?.addEventListener('click', () => {
+  function addPendingStepFromDetailInput(): void {
     if (!editingTaskId) return;
     const input = document.getElementById('detailNewStepInput') as HTMLInputElement;
     if (!input.value.trim()) return;
@@ -981,22 +1185,34 @@ function initApp(): void {
     input.value = '';
     renderDetailSteps(updated);
     render();
+  }
+
+  document.getElementById('detailAddStepBtn')?.addEventListener('click', addPendingStepFromDetailInput);
+
+  document.getElementById('detailNewStepInput')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
+      addPendingStepFromDetailInput();
+    }
   });
 
   document.getElementById('detailDeleteBtn')?.addEventListener('click', () => {
     if (!editingTaskId) return;
     const taskIdToDelete = editingTaskId;
     requestDeleteConfirmation(t(store.locale, 'confirm.deleteTaskPrompt'), () => {
-      store.deleteTask(taskIdToDelete);
       editingTaskId = null;
+      store.deleteTask(taskIdToDelete);
       void closeTopLayer(taskDialog);
       render();
     });
   });
 
-  document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
-    event.preventDefault();
+  function commitTaskDetailEdits(): void {
     if (!editingTaskId) return;
+    addPendingStepFromDetailInput();
     const recurrenceVal = (
       document.getElementById('detailRecurrenceSelect') as HTMLSelectElement
     ).value;
@@ -1005,21 +1221,38 @@ function initApp(): void {
     if (reminderAt && typeof Notification !== 'undefined' && Notification.permission === 'default') {
       void Notification.requestPermission().catch(() => undefined);
     }
+    const listSelect = document.getElementById('detailListSelect') as HTMLSelectElement | null;
+    const nextListId = listSelect?.value;
     store.updateTask(editingTaskId, {
       title: (document.getElementById('detailTitleInput') as HTMLInputElement).value,
       dueDate: (document.getElementById('detailDueDateInput') as HTMLInputElement).value || null,
       reminderAt,
       recurrence: (recurrenceVal || null) as RecurrencePattern | null,
       note: (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value,
+      ...(nextListId ? { listId: nextListId } : {}),
     });
+  }
+
+  document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!editingTaskId) return;
+    commitTaskDetailEdits();
+    editingTaskId = null;
     void closeTopLayer(taskDialog);
+    render();
+  });
+
+  taskDialog.addEventListener('close', () => {
+    if (!editingTaskId) return;
+    commitTaskDetailEdits();
+    editingTaskId = null;
     render();
   });
 
   document.getElementById('openImportBtn')?.addEventListener('click', () => {
     closeMobileDrawer();
     if (settingsDialog.open) {
-      settingsDialog.close();
+      void closeTopLayer(settingsDialog);
     }
     (document.getElementById('importErrorText') as HTMLElement).hidden = true;
     importDialog.showModal();
@@ -1056,6 +1289,28 @@ function initApp(): void {
     }
   });
 
+  function wireTablistKeyboard(
+    tablist: HTMLElement | null,
+    onSelect: (tab: HTMLButtonElement) => void,
+  ): void {
+    if (!tablist) return;
+    tablist.addEventListener('keydown', (event) => {
+      const tabs = Array.from(tablist.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+      const currentIdx = tabs.indexOf(document.activeElement as HTMLButtonElement);
+      if (currentIdx < 0) return;
+      let nextIdx = -1;
+      if (event.key === 'ArrowRight') nextIdx = (currentIdx + 1) % tabs.length;
+      else if (event.key === 'ArrowLeft') nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+      else if (event.key === 'Home') nextIdx = 0;
+      else if (event.key === 'End') nextIdx = tabs.length - 1;
+      if (nextIdx >= 0) {
+        event.preventDefault();
+        tabs[nextIdx].focus();
+        onSelect(tabs[nextIdx]);
+      }
+    });
+  }
+
   function selectSettingsTab(tabName: 'general' | 'lists' | 'sync'): void {
     document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((tab) => {
       tab.setAttribute('aria-selected', String(tab.dataset.settingsTab === tabName));
@@ -1070,6 +1325,11 @@ function initApp(): void {
       const target = tab.dataset.settingsTab as 'general' | 'lists' | 'sync' | undefined;
       if (target) selectSettingsTab(target);
     });
+  });
+
+  wireTablistKeyboard(settingsDialog.querySelector('[role="tablist"]'), (tab) => {
+    const target = tab.dataset.settingsTab as 'general' | 'lists' | 'sync' | undefined;
+    if (target) selectSettingsTab(target);
   });
 
   document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
@@ -1096,6 +1356,10 @@ function initApp(): void {
       store.preferences.autoHideEmptySmartLists;
     (document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement).checked =
       store.preferences.showAllSmartList;
+    const syncEnabledCheckbox = document.getElementById(
+      'settingsSyncEnabledCheckbox',
+    ) as HTMLInputElement | null;
+    if (syncEnabledCheckbox) syncEnabledCheckbox.checked = store.preferences.syncEnabled;
     const telemetrySupported = store.isTelemetrySupported();
     const telemetryCheckbox = document.getElementById(
       'settingsTelemetryCheckbox',
@@ -1127,14 +1391,19 @@ function initApp(): void {
     });
   });
 
+  wireTablistKeyboard(legalDialog.querySelector('[role="tablist"]'), (tab) => {
+    const target = tab.dataset.legalTab as 'imprint' | 'privacy' | undefined;
+    if (target) selectLegalTab(target);
+  });
+
   const openHelpModal = (): void => {
     closeMobileDrawer();
-    if (settingsDialog.open) settingsDialog.close();
+    if (settingsDialog.open) void closeTopLayer(settingsDialog);
     helpDialog.showModal();
   };
   const openLegalModal = (tabName: 'imprint' | 'privacy' = 'imprint'): void => {
     closeMobileDrawer();
-    if (settingsDialog.open) settingsDialog.close();
+    if (settingsDialog.open) void closeTopLayer(settingsDialog);
     selectLegalTab(tabName);
     legalDialog.showModal();
   };
@@ -1161,13 +1430,47 @@ function initApp(): void {
 
   document.getElementById('manualSyncBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('manualSyncBtn') as HTMLButtonElement | null;
-    if (btn) btn.disabled = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.loading = 'true';
+    }
     try {
       await runSyncNow();
       updateSyncLabels();
     } finally {
-      if (btn) btn.disabled = false;
+      if (btn) {
+        delete btn.dataset.loading;
+        btn.disabled = false;
+      }
     }
+  });
+
+  document.getElementById('deleteWorkspaceBtn')?.addEventListener('click', () => {
+    const btn = document.getElementById('deleteWorkspaceBtn') as HTMLButtonElement | null;
+    requestDeleteConfirmation(t(store.locale, 'confirm.deleteWorkspacePrompt'), () => {
+      void (async () => {
+        if (btn) {
+          btn.disabled = true;
+          btn.dataset.loading = 'true';
+        }
+        try {
+          await store.deleteCloudAndResetLocal();
+          hasSyncedOnce = false;
+          activeView = 'my-day';
+          activeListId = store.getDefaultTasksListId();
+          searchQuery = '';
+          if (searchInput) searchInput.value = '';
+          if (settingsDialog.open) void closeTopLayer(settingsDialog);
+          showToast(t(store.locale, 'toast.workspaceDeleted'));
+          render();
+        } finally {
+          if (btn) {
+            delete btn.dataset.loading;
+            btn.disabled = false;
+          }
+        }
+      })();
+    });
   });
 
   document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
@@ -1179,6 +1482,9 @@ function initApp(): void {
     const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
     const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement)
       .checked;
+    const syncEnabledEl = document.getElementById(
+      'settingsSyncEnabledCheckbox',
+    ) as HTMLInputElement | null;
     const nextPrefs = {
       addNewTasksOnTop: (
         document.getElementById('settingsAddNewOnTopCheckbox') as HTMLInputElement
@@ -1198,6 +1504,7 @@ function initApp(): void {
       showAllSmartList: (
         document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement
       ).checked,
+      syncEnabled: syncEnabledEl ? syncEnabledEl.checked : store.preferences.syncEnabled,
       telemetryEnabled:
         store.isTelemetrySupported() &&
         (document.getElementById('settingsTelemetryCheckbox') as HTMLInputElement).checked,
@@ -1260,9 +1567,17 @@ function initApp(): void {
   window.addEventListener('storage', () => {
     scheduleBackgroundSync();
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkDueReminders();
+      void runSyncNow();
+    }
+  });
   window.setInterval(() => {
     checkDueReminders();
-    void runSyncNow();
+    if (document.visibilityState !== 'hidden') {
+      void runSyncNow();
+    }
   }, 15_000);
 
   if ('serviceWorker' in navigator) {
@@ -1271,21 +1586,26 @@ function initApp(): void {
 
   async function handleJoinParamOnStartup(): Promise<void> {
     const params = new URLSearchParams(window.location.search);
+    const legalParam = params.get('legal');
+    if (legalParam === 'imprint' || legalParam === 'privacy') {
+      openLegalModal(legalParam);
+    }
+
     const pairKey = params.get('pair');
     if (pairKey) {
+      params.delete('pair');
+      const cleanQuery = params.toString();
+      const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', cleanUrl);
       try {
         store.setSyncKey(pairKey);
-        params.delete('pair');
-        const cleanQuery = params.toString();
-        const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
-        window.history.replaceState({}, '', cleanUrl);
         await store.syncWithServer();
         hasSyncedOnce = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
         render();
       } catch {
-        // Ignore invalid pairing key and proceed normally
+        showToast(t(store.locale, 'toast.pairFailed'));
       }
     }
 
@@ -1294,18 +1614,19 @@ function initApp(): void {
       void runSyncNow();
       return;
     }
+    params.delete('join');
+    const cleanQuery = params.toString();
+    const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', cleanUrl);
     try {
       const joinedList = await store.joinSharedListByToken(joinToken);
       hasSyncedOnce = true;
       activeView = 'lists';
       activeListId = joinedList.id;
-      params.delete('join');
-      const cleanQuery = params.toString();
-      const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
-      window.history.replaceState({}, '', cleanUrl);
       showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
       render();
     } catch {
+      showToast(t(store.locale, 'toast.joinFailed'));
       void runSyncNow();
     }
   }

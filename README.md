@@ -9,10 +9,11 @@
 
 Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** and **Microsoft To Do** (ahead of the June 30, 2027 Microsoft To Do shutdown).
 
-- **Local-First & Offline-Ready:** Instant startup (`< 200 ms`), synchronous local writes (`localStorage`), and deterministic field-level Last-Write-Wins (HLC) delta sync.
-- **4 Classic Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), and *Lists / Shared Lists*.
-- **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON/Graph export)**.
-- **Open Core + Self-Hostable:** Use locally for free on one device or self-host your own SQLite WAL sync server via `docker compose`. Configurable `Server URL` (default: `https://api.plinglist.app`).
+- **Local-First & Offline-Ready:** Instant startup (`< 200 ms`), synchronous local writes (`localStorage`), deterministic field-level Last-Write-Wins (HLC) delta sync (`lastPushedHlc`), and `Service Worker` offline support (`sw.js`).
+- **6 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), *All / Alle*, *Tasks / Aufgaben*, and *Custom & Shared Lists* (`?join=`), plus debounced live search (`?q=`) and URL state persistence (`?view=`).
+- **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), automatic GDPR tombstone content scrubbing on delete, and 1-click workspace erasure (`DELETE /api/v1/sync`).
+- **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON & CSV)**.
+- **Open Core + Self-Hostable:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL).
 
 ---
 
@@ -20,11 +21,11 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 
 ```text
 plinglist/
-├── packages/core/       # HLC clock, field-level LWW merge, view selectors & JSON importers
+├── packages/core/       # HLC clock, field-level LWW merge, view/search selectors & JSON/CSV importers
 ├── server/              # Node 22 HTTP static + SQLite WAL sync server & invite endpoints
 │   └── src/
 │       ├── config.ts
-│       ├── index.ts     # HTTP server (/api/health, /api/v1/sync, /api/v1/invites, /join/:token)
+│       ├── index.ts     # HTTP server (/api/health, /api/v1/sync [POST/DELETE], /api/v1/invites, /join/:token, 404)
 │       ├── sqlite-repo.ts
 │       └── sync-engine.ts
 ├── app/                 # Bilingual local-first Web-App & PWA (index.html, styles.css, store.ts, web-app.ts)
@@ -44,7 +45,7 @@ plinglist/
 Requires **Node.js 22+**.
 
 ```bash
-# Run the test suite across core, server, and app (17 tests)
+# Run the test suite across core, server, and app (36 tests)
 npm test
 
 # Build the browser bundle into app/dist/
@@ -73,7 +74,7 @@ docker compose up -d --build
 ## Documentation & Governance
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System diagram, HLC conflict resolution, SQLite WAL schema, and API contract
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.1`)
+- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.14`)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Coding, TDD, and i18n guidelines
 - [SECURITY.md](SECURITY.md) — Vulnerability disclosure policy
 - [TRADEMARK.md](TRADEMARK.md) — Mandatory rebranding policy for forks and public deployments

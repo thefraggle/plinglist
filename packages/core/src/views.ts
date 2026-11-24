@@ -102,6 +102,16 @@ export function getAllOpenTasks(tasks: TaskItem[]): TaskItem[] {
   return tasks.filter((task) => isActive(task) && !task.completed);
 }
 
+export function filterTasksByQuery(tasks: TaskItem[], rawQuery: string): TaskItem[] {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return tasks;
+  return tasks.filter((task) => {
+    if (task.title.toLowerCase().includes(q)) return true;
+    if (task.note.toLowerCase().includes(q)) return true;
+    return task.steps.some((step) => step.title.toLowerCase().includes(q));
+  });
+}
+
 export function sortTasksForView(tasks: TaskItem[], moveStarredToTop: boolean): TaskItem[] {
   if (!moveStarredToTop) {
     return [...tasks];

@@ -1,23 +1,25 @@
 :root {
   color-scheme: light dark;
 
-  --bg-canvas-light: #f4f2ec;
+  --bg-canvas-light: #f2f5f4;
   --bg-canvas-dark: #131615;
   --bg-surface-light: #ffffff;
   --bg-surface-dark: #1c201f;
-  --bg-subtle-light: #eae7df;
+  --bg-subtle-light: #e4eae8;
   --bg-subtle-dark: #252a28;
   --text-primary-light: #171b1a;
   --text-primary-dark: #f2f4f3;
   --text-muted-light: #59605d;
   --text-muted-dark: #9ea8a4;
-  --border-light: #dedad0;
+  --border-light: #d0d7d4;
   --border-dark: #2f3533;
+  --border-input-light: #76807c;
+  --border-input-dark: #636e6a;
   --brand-light: #0d6b58;
   --brand-dark: #48c9ad;
   --brand-ink-light: #ffffff;
   --brand-ink-dark: #07261f;
-  --star-light: #d97706;
+  --star-light: #b45309;
   --star-dark: #fbbf24;
   --danger-light: #b42318;
   --danger-dark: #f97066;
@@ -35,6 +37,7 @@
   --text-primary: var(--text-primary-light);
   --text-muted: var(--text-muted-light);
   --border-color: var(--border-light);
+  --border-input: var(--border-input-light);
   --brand: var(--brand-light);
   --brand-ink: var(--brand-ink-light);
   --star-color: var(--star-light);
@@ -50,6 +53,7 @@
     --text-primary: var(--text-primary-dark);
     --text-muted: var(--text-muted-dark);
     --border-color: var(--border-dark);
+    --border-input: var(--border-input-dark);
     --brand: var(--brand-dark);
     --brand-ink: var(--brand-ink-dark);
     --star-color: var(--star-dark);
@@ -66,6 +70,7 @@
     --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
     --text-muted: light-dark(var(--text-muted-light), var(--text-muted-dark));
     --border-color: light-dark(var(--border-light), var(--border-dark));
+    --border-input: light-dark(var(--border-input-light), var(--border-input-dark));
     --brand: light-dark(var(--brand-light), var(--brand-dark));
     --brand-ink: light-dark(var(--brand-ink-light), var(--brand-ink-dark));
     --star-color: light-dark(var(--star-light), var(--star-dark));
@@ -385,8 +390,37 @@ textarea:focus-visible {
 
 button:disabled,
 button[data-loading="true"] {
-  opacity: 0.55;
+  opacity: 0.65;
   cursor: not-allowed;
+}
+
+button[data-loading="true"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+button[data-loading="true"]::after {
+  content: "";
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 650ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button[data-loading="true"]::after {
+    animation: none;
+  }
 }
 
 .btn-primary {
@@ -459,6 +493,7 @@ button[data-loading="true"] {
 }
 
 input[type="text"],
+input[type="search"],
 input[type="date"],
 input[type="datetime-local"],
 input[type="url"],
@@ -466,10 +501,38 @@ select,
 textarea {
   min-height: 2.75rem;
   padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-input);
   border-radius: 0.55rem;
   background-color: var(--bg-surface);
   width: 100%;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+input[type="text"]:hover:not(:disabled):not([readonly]),
+input[type="search"]:hover:not(:disabled),
+input[type="date"]:hover:not(:disabled),
+input[type="datetime-local"]:hover:not(:disabled),
+input[type="url"]:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--brand);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.search-row input[type="search"] {
+  flex: 1;
 }
 
 .quick-add-form {
@@ -535,12 +598,11 @@ textarea {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
-  box-shadow: var(--shadow-xs);
-  transition: box-shadow 140ms ease, border-color 140ms ease;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .task-row:hover {
-  box-shadow: var(--shadow-sm);
+  border-color: var(--border-input);
 }
 
 .task-check-btn {
@@ -619,6 +681,15 @@ textarea {
   color: var(--text-muted);
 }
 
+.task-star-btn:hover:not(:disabled) {
+  background-color: var(--bg-subtle);
+  color: var(--star-color);
+}
+
+.task-star-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
 .task-star-btn[aria-pressed="true"] {
   color: var(--star-color);
 }
@@ -628,7 +699,6 @@ textarea {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
-  box-shadow: var(--shadow-xs);
   padding: 0.7rem 0.95rem;
 }
 
@@ -639,7 +709,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 2rem;
+  min-height: 2.75rem;
 }
 
 .suggestions-panel .task-list,
@@ -680,6 +750,15 @@ textarea {
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 500;
+}
+
+.mobile-tab:hover:not(:disabled) {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.mobile-tab:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .mobile-tab[aria-current="page"] {
@@ -817,7 +896,8 @@ dialog::backdrop {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 0.25rem;
   background-color: var(--bg-subtle);
   padding: 0.2rem;
@@ -825,21 +905,25 @@ dialog::backdrop {
 }
 
 .settings-tab {
-  min-height: 2.15rem;
-  padding: 0.3rem 0.6rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.6rem;
   font-size: 0.86rem;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 0.45rem;
   box-shadow: none;
   background: transparent;
   color: var(--text-muted);
 }
 
+.settings-tab:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
 .settings-tab[aria-selected="true"] {
   background-color: var(--bg-surface);
   color: var(--text-primary);
+  border-color: var(--border-color);
   box-shadow: var(--shadow-xs);
-  font-weight: 600;
 }
 
 .settings-panel {
@@ -929,6 +1013,12 @@ input[readonly] {
   align-items: center;
   gap: 0.6rem;
   min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.checkbox-row:has(input:disabled) {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .error-text {
@@ -970,8 +1060,8 @@ input[readonly] {
 }
 
 .sidebar-action-btn {
-  min-height: 2.15rem;
-  padding: 0.35rem 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.5rem;
   border: 0;
   border-radius: 0.5rem;
   box-shadow: none;
@@ -1004,10 +1094,12 @@ input[readonly] {
 
 button.link-inline,
 a.link-inline {
-  min-height: 0;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.25rem 0.2rem;
   border: 0;
-  border-radius: 0;
+  border-radius: 0.3rem;
   box-shadow: none;
   background: transparent;
   font: inherit;

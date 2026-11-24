@@ -575,7 +575,12 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="openImprintBtn"/);
   assert.match(html, /id="openPrivacyBtn"/);
   assert.match(html, /id="settingsTelemetryCheckbox"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.13/);
+  assert.match(html, /id="settingsSyncEnabledCheckbox"/);
+  assert.match(html, /id="deleteWorkspaceBtn"/);
+  assert.match(html, /id="taskSearchInput"/);
+  assert.match(html, /id="detailListSelect"/);
+  assert.match(html, /role="tabpanel"/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.14/);
   assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
 });
 
@@ -612,5 +617,78 @@ test('telemetry is configurable on official cloud origin (plinglist.app) and per
     } else {
       (globalThis as { window?: unknown }).window = prevWindow;
     }
+  }
+});
+
+test('deleteTask/deleteList scrub personal data from tombstones, syncEnabled disables network sync, and deleteCloudAndResetLocal wipes state', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+    const store = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+    });
+
+    const list = store.addList('Sensibel');
+    const task = store.addTask({
+      title: 'Arzttermin vereinbaren',
+      listId: list.id,
+      dueDate: '2026-12-01',
+      note: 'Versichertenkarte mitnehmen',
+    });
+    store.addTaskStep(task.id, 'Praxis anrufen');
+
+    assert.equal((await store.syncWithServer()).synced, true);
+
+    store.deleteTask(task.id);
+    const scrubbedTask = store.tasks.find((t) => t.id === task.id)!;
+    assert.ok(scrubbedTask.deletedAt);
+    assert.equal(scrubbedTask.title, '');
+    assert.equal(scrubbedTask.note, '');
+    assert.deepEqual(scrubbedTask.steps, []);
+    assert.equal(scrubbedTask.dueDate, null);
+
+    // Delta push only sends changed items after first sync
+    let capturedBody: { clientLists: unknown[]; clientTasks: unknown[] } | null = null;
+    const spyFetch: typeof fetch = async (input, init) => {
+      if (String(input).endsWith('/api/v1/sync') && init?.method === 'POST' && init.body) {
+        capturedBody = JSON.parse(String(init.body)) as {
+          clientLists: unknown[];
+          clientTasks: unknown[];
+        };
+      }
+      return fetch(input, init);
+    };
+
+    assert.equal((await store.syncWithServer(spyFetch)).synced, true);
+    assert.equal(capturedBody?.clientTasks.length, 1);
+
+    // Second consecutive poll with no mutations pushes 0 items
+    capturedBody = null;
+    assert.equal((await store.syncWithServer(spyFetch)).synced, true);
+    assert.equal(capturedBody?.clientLists.length, 0);
+    assert.equal(capturedBody?.clientTasks.length, 0);
+
+    // syncEnabled = false prevents network sync completely
+    store.setPreferences({ syncEnabled: false });
+    const skipped = await store.syncWithServer(spyFetch);
+    assert.equal(skipped.synced, false);
+
+    // deleteCloudAndResetLocal removes remote workspace and resets local store
+    const prevKey = store.syncKey;
+    const deleted = await store.deleteCloudAndResetLocal();
+    assert.equal(deleted, true);
+    assert.notEqual(store.syncKey, prevKey);
+    assert.equal(store.tasks.length, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
   }
 });

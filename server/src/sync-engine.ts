@@ -50,6 +50,7 @@ export interface SyncResponse {
 export interface SyncRepository {
   applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse>;
   resolveInviteToken?(inviteToken: string): Promise<TaskList | null>;
+  deleteWorkspace?(syncKey: string, userId?: string): Promise<number>;
   upsertEntitlement?(state: EntitlementRecord): void;
   hasActiveEntitlement?(userKey: string, nowMs?: number): boolean;
 }
@@ -298,5 +299,32 @@ export class InMemorySyncRepository implements SyncRepository {
       }
     }
     return null;
+  }
+
+  async deleteWorkspace(syncKey: string, userId?: string): Promise<number> {
+    const cleanKey = syncKey.trim();
+    const cleanUserId = userId?.trim() || '';
+    if (!cleanKey && !cleanUserId) return 0;
+
+    const ownedListIds = new Set<string>();
+    for (const [listId, owner] of this.ownerByListId.entries()) {
+      if ((cleanKey && owner === cleanKey) || (cleanUserId && owner === cleanUserId)) {
+        ownedListIds.add(listId);
+      }
+    }
+
+    for (const listId of ownedListIds) {
+      this.listsById.delete(listId);
+      this.ownerByListId.delete(listId);
+    }
+    for (const [taskId, task] of this.tasksById.entries()) {
+      if (ownedListIds.has(task.listId)) {
+        this.tasksById.delete(taskId);
+      }
+    }
+    if (cleanKey) {
+      this.entitlementsByUser.delete(cleanKey);
+    }
+    return ownedListIds.size;
   }
 }

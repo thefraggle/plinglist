@@ -2,6 +2,33 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.14] - 2026-11-24
+
+### Added
+- **Live Search, URL State & List Selector (`packages/core/src/views.ts`, `app/index.html`, `app/src/web-app.ts`):** Added `filterTasksByQuery()` with a debounced search bar (`#taskSearchInput`, `?q=`), URL state persistence (`?view=`, `?list=`, `?legal=imprint|privacy`) with `popstate` support, and a list selector (`#detailListSelect`) inside `#taskDetailDialog`, plus list names, localized recurrences, and reminder indicators in `.task-meta`.
+- **GDPR Cloud-Sync Toggle, Tombstone Scrubbing & Workspace Erasure (`app/src/store.ts`, `server/src/sync-engine.ts`, `server/src/sqlite-repo.ts`, `server/src/index.ts`):** Added `preferences.syncEnabled` (local-only mode), immediate personal content clearing on `deleteTask()` / `deleteList()`, `DELETE /api/v1/sync` (`deleteWorkspace` / `deleteCloudAndResetLocal()`), and expanded privacy disclosures (server logs, retention, Umami opt-out details, Art. 21 & supervisory authority rights).
+
+### Changed
+- **UI/UX, Accessibility & Performance Hardening (`app/styles.css`, `app/index.html`, `app/src/web-app.ts`, `app/sw.js`, `server/src/index.ts`):**
+  - Switched light canvas to cool neutral `#f2f5f4` (synced with `manifest.webmanifest`), raised input border contrast (`--border-input`) and `--star-light` (`#b45309`) to WCAG AA, enforced 44px touch targets, added `data-loading` button spinners, and removed redundant `box-shadow` declarations on task rows/panels.
+  - Added WAI-ARIA `role="tabpanel"` + arrow-key tablist navigation, `inert` + focus restoration for the mobile drawer, `aria-label`/`aria-pressed` on subtask controls, IME-safe `Enter` step creation (`!event.isComposing && event.keyCode !== 229`), and auto-save on `#taskDetailDialog` close.
+  - Added delta-push tracking (`lastPushedHlc`), visibility-aware 15s background polling, locale-cached `applyTranslations()`, `<link rel="modulepreload">` tags, Service Worker `v12` (`ignoreSearch: true`), `Cache-Control` headers, true HTTP `404` responses, and toast feedback for clipboard fallbacks and invalid `?join=`/`?pair=` links.
+
+## [0.1.13] - 2026-11-24
+
+### Changed
+- **Sidebar Footer & 2-Tab Legal Modal (`app/index.html`, `app/styles.css`, `app/src/i18n.ts`, `app/src/web-app.ts`, `app/sw.js`):** Refined the sidebar footer layout (`Einstellungen` / `Hilfe & Tour` + inline `Impressum` / `Datenschutz` links) and structured `#legalDialog` into two dedicated tabs.
+
+## [0.1.12] - 2026-11-24
+
+### Added
+- **Help Modal, Imprint/Privacy Dialog & Opt-Out Diagnostics (`app/index.html`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/src/i18n.ts`):** Added `#helpDialog`, `#legalDialog` (§ 5 DDG / § 18 Abs. 2 MStV & GDPR), and self-hosted Umami diagnostics strictly restricted to `plinglist.app` with an opt-out toggle in Settings (`isOfficialCloudOrigin`, permanently disabled when self-hosted).
+
+## [0.1.11] - 2026-11-24
+
+### Added
+- **Readonly Sync Key Unlock & Guest Revocation Cleanup (`app/index.html`, `app/src/web-app.ts`, `app/src/store.ts`, `server/src/sync-engine.ts`, `server/src/sqlite-repo.ts`):** Protected `#settingsSyncKeyInput` as `readonly` with an explicit `#editSettingsSyncKeyBtn` unlock flow, and returned `revokedListIds` from sync so guests automatically remove unshared lists and their tasks.
+
 ## [0.1.10] - 2026-11-24
 
 ### Changed

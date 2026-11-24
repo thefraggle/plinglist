@@ -8,7 +8,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) to-do list application desig
 
 - **Instant Local Execution:** Every read and mutation (`addTask`, `toggleTaskCompleted`, `addTaskStep`, `updateTask`) executes synchronously against local memory and `localStorage` (`< 16 ms` UI latency, `< 200 ms` cold start). Network synchronization runs strictly asynchronously in the background.
 - **Offline-First Resilience:** Tasks can be created, checked off, starred, and edited without network connectivity. All mutations carry Hybrid Logical Clock (HLC) timestamps for deterministic merging upon reconnect.
-- **Strict YAGNI Scope:** Four classic views (*My Day* with automatic midnight reset + smart suggestions, *Starred*, *Planned* with due dates & recurrences, and *Lists / Shared Lists*). No Kanban boards, no AI bloat.
+- **Strict YAGNI Scope:** Six views (*My Day* with automatic midnight reset + smart suggestions, *Starred*, *Planned* with due dates & recurrences, *All*, *Tasks*, and *Custom / Shared Lists*) plus debounced live search (`filterTasksByQuery`) and URL state (`?view=&list=&q=&legal=`). No Kanban boards, no AI bloat.
 - **Zero External Runtime Dependencies:** Built directly on Node.js 22 LTS (`node:http`, `node:sqlite`, `node:module.stripTypeScriptTypes`, `node:test`) and standard browser primitives (`<dialog closedby="any">`, Web Audio API, Service Worker, `color-scheme: light dark`, `light-dark()`).
 - **Strict CSP Compatibility:** No inline `<script>` tags, no inline `style=""` attributes, and no external font/CDN dependencies.
 
@@ -28,15 +28,15 @@ flowchart TB
 
     subgraph Core["Shared Core Engine (packages/core/)"]
         HLC["HlcClock + LWW Merge\n(mergeTaskLww, mergeListLww)"]
-        Views["Classic View Selectors\n(My Day Reset, Suggestions, Recurrence)"]
-        Importers["1-Click Importers\n(Wunderlist JSON, MS To Do JSON)"]
+        Views["View & Search Selectors\n(My Day Reset, Suggestions, Recurrence, filterTasksByQuery)"]
+        Importers["1-Click Importers\n(Wunderlist JSON, MS To Do JSON & CSV)"]
         Store --> HLC
         Store --> Views
         Store --> Importers
     end
 
     subgraph Server["Self-Hosted Sync Server (server/)"]
-        HTTP["Node 22 HTTP Server\n(/api/health, /api/v1/sync, /api/v1/invites)"]
+        HTTP["Node 22 HTTP Server\n(/api/health, /api/v1/sync, /api/v1/invites, 404)"]
         Repo["SqliteSyncRepository\n(node:sqlite WAL Mode)"]
         HTTP --> Repo
         Repo --> HLC
@@ -48,7 +48,7 @@ flowchart TB
         Assets["Brand Overlay Script\n(Official Pling Audio & Store Icons)"]
     end
 
-    Store <-->|POST /api/v1/sync + Invite Join| HTTP
+    Store <-->|POST/DELETE /api/v1/sync + Invite Join| HTTP
     Guard -.->|Optional Pro Hook| Repo
     Assets -.->|Release Build Overlay| WebUI
 ```
@@ -66,7 +66,8 @@ Plinglist uses **Hybrid Logical Clocks** (`packages/core/src/hlc.ts`) formatted 
 - **Monotonicity:** `HlcClock.now(wallMs)` and `HlcClock.receive(remoteHlc, wallMs)` advance monotonically even when a device's system clock drifts backwards.
 - **Field-Level LWW (`mergeTaskLww`):** Each task stores `fieldHlcs` across 12 mergeable fields (`listId`, `title`, `completed`, `completedAt`, `starred`, `myDayDate`, `dueDate`, `reminderAt`, `recurrence`, `note`, `steps`, `deletedAt`). If Device A checks off a task offline while Device B updates its note offline, both changes survive cleanly on merge.
 - **List-Level LWW (`mergeListLww`):** Merges `title`, `shared`, `inviteToken`, and soft-delete `deletedAt` by comparing record HLCs while retaining earliest `createdAt` and latest `updatedAt`.
-- **Soft-Delete Tombstones:** Deletions set `deletedAt` rather than removing records immediately so deletions propagate reliably to offline peers.
+- **Delta-Push Optimization (`lastPushedHlc`):** After initial workspace sync, `PlinglistStore.syncWithServer()` pushes only lists and tasks whose HLC exceeds `lastPushedHlc`, turning idle 15-second background polls (paused while the tab is hidden) into empty-body delta pulls.
+- **GDPR Tombstone Content Scrubbing:** Deletions (`deleteTask`, `deleteList`) set `deletedAt` for reliable offline peer propagation while immediately clearing all personal content fields (`title`, `note`, `steps`, `dueDate`, `reminderAt`, `myDayDate`, `starred`) and updating their `fieldHlcs`. Users can also erase all local and server-stored workspace data via `DELETE /api/v1/sync` or switch to local-only mode (`syncEnabled = false`).
 
 ---
 
@@ -93,11 +94,13 @@ PRAGMA busy_timeout = 5000;
 | :--- | :--- | :--- |
 | `GET /api/health` | Liveness & healthcheck | Returns `{ status: "ok", service: "plinglist-app", cloudExtensionEnabled }` |
 | `POST /api/v1/sync` | Idempotent HLC delta push & pull | Merges `clientLists` & `clientTasks`, returns deltas newer than `sinceHlc` + new `cursorHlc` (returns `403 PRO_ENTITLEMENT_REQUIRED` when `CLOUD_ENFORCE_ENTITLEMENTS=true` without active entitlement) |
+| `DELETE /api/v1/sync` | GDPR workspace erasure | Deletes all lists owned by `syncKey` / `userId`, their tasks, and entitlements, returning `{ ok: true, deletedLists }` |
 | `POST /api/v1/invites/:token/join` | Resolve shared list invite | Returns `{ list }` or `404 INVITE_NOT_FOUND` |
 | `GET /join/:token` | Browser invite entry | `302` redirect to `${PUBLIC_BASE_URL}/?join=<token>` |
 | `POST /api/v1/cloud/webhooks/stripe` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists Stripe `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
 | `POST /api/v1/cloud/webhooks/revenuecat` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists RevenueCat `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
-| `OPTIONS /api/*` | CORS preflight | Returns `204` with `Access-Control-Allow-Origin: *` |
+| `GET /` & static assets | App shell & static delivery | Sets `Cache-Control: no-cache` for `.html`/`sw.js`/`.webmanifest`, `max-age=3600` for assets, and real `404` HTML/JSON responses for unknown routes or missing files |
+| `OPTIONS /api/*` | CORS preflight | Returns `204` with `Access-Control-Allow-Origin: *` (`GET, POST, DELETE, OPTIONS`) |
 
 ---
 
