@@ -99,17 +99,35 @@
             </div>
           </div>
           <div class="header-actions">
-            <button type="button" id="renameListBtn" class="btn-secondary btn-compact" data-i18n="list.rename" hidden>
-              Umbenennen
+            <button
+              type="button"
+              id="renameListBtn"
+              class="btn-icon"
+              data-i18n-aria="list.rename"
+              title="Umbenennen"
+              hidden
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
             </button>
-            <button type="button" id="deleteListBtn" class="btn-danger btn-compact" data-i18n="list.delete" hidden>
-              Liste löschen
+            <button
+              type="button"
+              id="deleteListBtn"
+              class="btn-icon btn-icon-danger"
+              data-i18n-aria="list.delete"
+              title="Liste löschen"
+              hidden
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
             </button>
             <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share">
               Teilen
-            </button>
-            <button type="button" id="langToggleBtn" class="btn-secondary btn-compact" aria-label="Switch language">
-              DE / EN
             </button>
           </div>
         </header>
@@ -233,6 +251,15 @@
                 Teilen…
               </button>
             </div>
+            <button
+              type="button"
+              id="unshareListBtn"
+              class="btn-danger btn-compact"
+              data-i18n="share.unshareBtn"
+              hidden
+            >
+              Freigabe beenden
+            </button>
           </section>
 
           <div class="sidebar-divider"></div>

@@ -295,3 +295,41 @@ test('PlinglistStore renames and soft-deletes custom lists while protecting the 
   assert.equal(store.getActiveLists()[0].id, defaultTasksId);
   assert.throws(() => store.deleteList(defaultTasksId));
 });
+
+test('PlinglistStore supports read-only getInviteUrl and unshareList with server token invalidation', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+    const store = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+    });
+
+    const list = store.addList('Urlaub');
+    assert.equal(store.getInviteUrl(list.id, 'https://plinglist.app'), null);
+
+    const { inviteUrl, list: shared } = store.shareList(list.id, 'https://plinglist.app');
+    const token = shared.inviteToken!;
+    assert.equal(store.getInviteUrl(list.id, 'https://plinglist.app'), inviteUrl);
+    assert.equal((await store.syncWithServer()).synced, true);
+    assert.ok(await repo.resolveInviteToken(token));
+
+    const unshared = store.unshareList(list.id);
+    assert.equal(unshared.shared, false);
+    assert.equal(unshared.inviteToken, null);
+    assert.equal(store.getInviteUrl(list.id, 'https://plinglist.app'), null);
+
+    assert.equal((await store.syncWithServer()).synced, true);
+    assert.equal(await repo.resolveInviteToken(token), null);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

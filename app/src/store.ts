@@ -295,6 +295,16 @@ export class PlinglistStore {
     return `${cleanOrigin}/?pair=${encodeURIComponent(this.syncKey)}`;
   }
 
+  getInviteUrl(listId: string, appOrigin?: string): string | null {
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!list || !list.shared || !list.inviteToken) {
+      return null;
+    }
+    return appOrigin
+      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(list.inviteToken)}`
+      : `${this.serverUrl}/join/${list.inviteToken}`;
+  }
+
   shareList(listId: string, appOrigin?: string): { list: TaskList; inviteUrl: string } {
     const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
     if (!list) {
@@ -312,6 +322,19 @@ export class PlinglistStore {
       list,
       inviteUrl,
     };
+  }
+
+  unshareList(listId: string): TaskList {
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!list) {
+      throw new Error(`List not found: ${listId}`);
+    }
+    list.shared = false;
+    list.inviteToken = null;
+    list.updatedAt = new Date().toISOString();
+    list.hlc = this.clock.now();
+    this.persist();
+    return list;
   }
 
   addTask(input: AddTaskInput): TaskItem {

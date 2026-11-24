@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.6] - 2026-11-24
+
+### Added
+- **Unshare Lists & Read-Only Share Modal Preview (`app/src/store.ts`, `app/src/web-app.ts`):** Added `unshareList()` (clears `shared` & `inviteToken` via HLC and invalidates the server invite token on sync) and `getInviteUrl()`. Opening `#shareDialog` or switching lists in `#shareListSelect` no longer marks lists as shared until the user explicitly clicks *Copy link* or *Share…*, and shared lists show a *Stop sharing / Freigabe beenden* button.
+
+### Changed
+- **Decluttered Header (`app/index.html`, `app/styles.css`, `app/sw.js`):** Replaced the prominent *Rename* and *Delete list* text buttons with subtle SVG icon buttons (`.btn-icon`), removed the redundant `DE / EN` header button (language remains in *Settings*), and bumped Service Worker cache to `plinglist-app-v4`.
+
 ## [0.1.5] - 2026-11-24
 
 ### Added

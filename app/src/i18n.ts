@@ -48,12 +48,15 @@ export const TRANSLATIONS = {
     'list.renameDialogTitle': 'Rename list',
     'list.renamedToast': 'List renamed',
     'list.deletedToast': 'List deleted',
+    'list.unsharedToast': 'List sharing stopped',
     'share.dialogTitle': 'Share & Pair Devices',
     'share.listSectionTitle': 'Invite people to a list',
     'share.listSectionHint':
       'Anyone with this link can view and check off items in the selected list.',
     'share.selectListLabel': 'List to share',
     'share.copyInviteBtn': 'Copy link',
+    'share.unshareBtn': 'Stop sharing',
+    'share.notSharedYet': 'Click "Copy link" to activate sharing for this list',
     'share.nativeShareBtn': 'Share…',
     'share.pairSectionTitle': 'Sync your own phone & computer',
     'share.pairSectionHint':
@@ -136,12 +139,15 @@ export const TRANSLATIONS = {
     'list.renameDialogTitle': 'Liste umbenennen',
     'list.renamedToast': 'Liste umbenannt',
     'list.deletedToast': 'Liste gelöscht',
+    'list.unsharedToast': 'Freigabe beendet',
     'share.dialogTitle': 'Teilen & Geräte koppeln',
     'share.listSectionTitle': 'Personen zu einer Liste einladen',
     'share.listSectionHint':
       'Jeder mit diesem Link kann Aufgaben in der gewählten Liste sehen und abhaken.',
     'share.selectListLabel': 'Liste auswählen',
     'share.copyInviteBtn': 'Link kopieren',
+    'share.unshareBtn': 'Freigabe beenden',
+    'share.notSharedYet': 'Klicke auf „Link kopieren“, um diese Liste freizugeben',
     'share.nativeShareBtn': 'Teilen…',
     'share.pairSectionTitle': 'Eigenes Handy & PC synchronisieren',
     'share.pairSectionHint':

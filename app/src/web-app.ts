@@ -295,7 +295,9 @@ function initApp(): void {
       });
     document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => {
       const key = el.dataset.i18nAria as TranslationKey;
-      el.setAttribute('aria-label', t(store.locale, key));
+      const label = t(store.locale, key);
+      el.setAttribute('aria-label', label);
+      el.title = label;
     });
 
     const syncLabel = document.getElementById('syncStatusText');
@@ -510,12 +512,19 @@ function initApp(): void {
     completedListEl.replaceChildren(...doneTasks.map((item) => createTaskElement(item)));
   }
 
-  function updateShareInviteUrl(listId: string): void {
-    const appOrigin = window.location.origin;
-    const { inviteUrl } = store.shareList(listId, appOrigin);
-    (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value = inviteUrl;
-    render();
-    void runSyncNow();
+  function refreshShareDialogState(listId: string): void {
+    const urlInput = document.getElementById('shareInviteUrlInput') as HTMLInputElement;
+    const unshareBtn = document.getElementById('unshareListBtn') as HTMLButtonElement;
+    const existingUrl = store.getInviteUrl(listId, window.location.origin);
+    if (existingUrl) {
+      urlInput.value = existingUrl;
+      urlInput.placeholder = '';
+      unshareBtn.hidden = false;
+    } else {
+      urlInput.value = '';
+      urlInput.placeholder = t(store.locale, 'share.notSharedYet');
+      unshareBtn.hidden = true;
+    }
   }
 
   function openShareModal(): void {
@@ -535,7 +544,7 @@ function initApp(): void {
         : (activeLists[0]?.id ?? store.getDefaultTasksListId());
     selectEl.value = initialListId;
 
-    updateShareInviteUrl(initialListId);
+    refreshShareDialogState(initialListId);
     (document.getElementById('sharePairUrlInput') as HTMLInputElement).value =
       store.getPairingUrl(window.location.origin);
     (document.getElementById('shareSyncKeyCode') as HTMLElement).textContent = store.syncKey;
@@ -697,12 +706,16 @@ function initApp(): void {
 
   document.getElementById('shareListBtn')?.addEventListener('click', openShareModal);
   document.getElementById('shareListSelect')?.addEventListener('change', (event) => {
-    updateShareInviteUrl((event.target as HTMLSelectElement).value);
+    refreshShareDialogState((event.target as HTMLSelectElement).value);
   });
 
   document.getElementById('copyInviteUrlBtn')?.addEventListener('click', async () => {
-    const val = (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value;
-    await navigator.clipboard?.writeText(val).catch(() => undefined);
+    const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    const { inviteUrl } = store.shareList(listId, window.location.origin);
+    refreshShareDialogState(listId);
+    render();
+    void runSyncNow();
+    await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
     showToast(t(store.locale, 'list.inviteCopied'));
   });
 
@@ -713,10 +726,23 @@ function initApp(): void {
   });
 
   document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
-    const url = (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value;
+    const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    const { inviteUrl } = store.shareList(listId, window.location.origin);
+    refreshShareDialogState(listId);
+    render();
+    void runSyncNow();
     await navigator
-      .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url })
+      .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url: inviteUrl })
       .catch(() => undefined);
+  });
+
+  document.getElementById('unshareListBtn')?.addEventListener('click', () => {
+    const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    store.unshareList(listId);
+    refreshShareDialogState(listId);
+    render();
+    void runSyncNow();
+    showToast(t(store.locale, 'list.unsharedToast'));
   });
 
   document.getElementById('nativeSharePairBtn')?.addEventListener('click', async () => {
@@ -724,11 +750,6 @@ function initApp(): void {
     await navigator
       .share?.({ title: 'Plinglist Sync', text: t(store.locale, 'share.pairSectionTitle'), url })
       .catch(() => undefined);
-  });
-
-  document.getElementById('langToggleBtn')?.addEventListener('click', () => {
-    store.setLocale(store.locale === 'de' ? 'en' : 'de');
-    render();
   });
 
   document.getElementById('detailMyDayBtn')?.addEventListener('click', () => {

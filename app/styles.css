@@ -437,6 +437,12 @@ button[data-loading="true"] {
   border-color: var(--star-color);
 }
 
+.btn-icon-danger:hover:not(:disabled),
+.btn-icon-danger:focus-visible {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .btn-danger {
   background-color: transparent;
   color: var(--danger);
