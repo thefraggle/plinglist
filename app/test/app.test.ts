@@ -580,7 +580,7 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="taskSearchInput"/);
   assert.match(html, /id="detailListSelect"/);
   assert.match(html, /role="tabpanel"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.15/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.16/);
   assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
 });
 

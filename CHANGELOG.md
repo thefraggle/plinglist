@@ -2,6 +2,11 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.16] - 2026-11-24
+
+### Added
+- **Complete Anonymous Diagnostic Funnel (`app/src/web-app.ts`, `app/sw.js`):** Added anonymous `trackDiagnostic()` counters (`task_created`, `list_created`, `list_shared` on native Share API, `list_joined`, and `device_paired` on manual Sync-Key change) strictly on `plinglist.app` when telemetry opt-out is not active. Bumped Service Worker cache to `plinglist-app-v14`.
+
 ## [0.1.15] - 2026-11-24
 
 ### Changed

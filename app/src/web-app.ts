@@ -1008,6 +1008,7 @@ function initApp(): void {
     input.value = '';
     activeView = 'lists';
     activeListId = created.id;
+    trackDiagnostic('list_created');
     closeMobileDrawer();
     render();
   });
@@ -1041,6 +1042,7 @@ function initApp(): void {
     quickAddStarred = false;
     newTaskStarBtn.setAttribute('aria-pressed', 'false');
     newTaskStarBtn.textContent = '☆';
+    trackDiagnostic('task_created');
     render();
   });
 
@@ -1142,6 +1144,7 @@ function initApp(): void {
     refreshShareDialogState(listId);
     render();
     void runSyncNow();
+    trackDiagnostic('list_shared');
     await navigator
       .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url: inviteUrl })
       .catch(() => undefined);
@@ -1510,8 +1513,12 @@ function initApp(): void {
         (document.getElementById('settingsTelemetryCheckbox') as HTMLInputElement).checked,
     };
 
+    const prevSyncKey = store.syncKey;
     try {
       store.setSyncKey(nextSyncKey);
+      if (nextSyncKey.trim() !== prevSyncKey) {
+        trackDiagnostic('device_paired');
+      }
     } catch {
       selectSettingsTab('sync');
       errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
@@ -1623,6 +1630,7 @@ function initApp(): void {
       hasSyncedOnce = true;
       activeView = 'lists';
       activeListId = joinedList.id;
+      trackDiagnostic('list_joined');
       showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
       render();
     } catch {
