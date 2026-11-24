@@ -2,6 +2,12 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.3] - 2026-11-24
+
+### Added
+- **1-Click Share & Device Pairing Modal (`#shareDialog`, `?join=`, `?pair=`):** Added unified share dialog in `app/index.html` and `app/src/web-app.ts` to invite collaborators to any list via `https://plinglist.app/?join=<token>` and pair your own phone & computer via `https://plinglist.app/?pair=<syncKey>` (including native OS `navigator.share` + clipboard copy + automatic `?pair=` handling on startup).
+- **Mobile-First Navigation & Tactile UI Overhaul (`app/styles.css`):** Added off-canvas slide-over drawer (`#appSidebar` + backdrop) on `< 768px`, fixed bottom mobile tab bar (`My Day`, `Starred`, `Planned`, `Lists`), subtle layered shadows (`--shadow-xs`, `--shadow-sm`, `--shadow-dialog`), circular Wunderlist-style checkboxes, amber stars, and shortened button labels (`white-space: nowrap`).
+
 ## [0.1.2] - 2026-11-23
 
 ### Added

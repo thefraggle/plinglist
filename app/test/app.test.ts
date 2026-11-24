@@ -201,3 +201,21 @@ test('zero-auth syncKey pairs two devices without accounts and store imports CSV
     repo.close();
   }
 });
+
+test('store generates direct app invite URLs (?join=) and self-pairing URLs (?pair=)', () => {
+  const store = new PlinglistStore({
+    storage: createMemoryStorage(),
+    locale: 'de',
+    syncKey: 'pling-test-pair-9999',
+  });
+  const list = store.addList('Reise');
+  const { inviteUrl, list: shared } = store.shareList(list.id, 'https://plinglist.app');
+  assert.equal(
+    inviteUrl,
+    `https://plinglist.app/?join=${encodeURIComponent(shared.inviteToken!)}`,
+  );
+  assert.equal(
+    store.getPairingUrl('https://plinglist.app/'),
+    'https://plinglist.app/?pair=pling-test-pair-9999',
+  );
+});

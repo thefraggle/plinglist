@@ -235,7 +235,12 @@ export class PlinglistStore {
     return list;
   }
 
-  shareList(listId: string): { list: TaskList; inviteUrl: string } {
+  getPairingUrl(appOrigin = 'https://plinglist.app'): string {
+    const cleanOrigin = appOrigin.replace(/\/+$/, '');
+    return `${cleanOrigin}/?pair=${encodeURIComponent(this.syncKey)}`;
+  }
+
+  shareList(listId: string, appOrigin?: string): { list: TaskList; inviteUrl: string } {
     const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
     if (!list) {
       throw new Error(`List not found: ${listId}`);
@@ -245,9 +250,12 @@ export class PlinglistStore {
     list.updatedAt = new Date().toISOString();
     list.hlc = this.clock.now();
     this.persist();
+    const inviteUrl = appOrigin
+      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(list.inviteToken)}`
+      : `${this.serverUrl}/join/${list.inviteToken}`;
     return {
       list,
-      inviteUrl: `${this.serverUrl}/join/${list.inviteToken}`,
+      inviteUrl,
     };
   }
 

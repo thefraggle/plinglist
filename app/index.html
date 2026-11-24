@@ -2,7 +2,7 @@
 <html lang="de">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#0d6b58" />
     <title>Plinglist — Pling. Done.</title>
@@ -10,27 +10,43 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
+
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Navigation">
-        <div class="brand-row">
-          <span class="brand-mark" aria-hidden="true">✓</span>
-          <div class="brand-copy">
-            <span class="brand-name">Plinglist</span>
-            <span class="brand-status" id="syncStatusText"></span>
+      <aside id="appSidebar" class="sidebar" aria-label="Navigation">
+        <div class="sidebar-top">
+          <div class="brand-row">
+            <span class="brand-mark" aria-hidden="true">✓</span>
+            <div class="brand-copy">
+              <span class="brand-name">Plinglist</span>
+              <span class="brand-status" id="syncStatusText"></span>
+            </div>
           </div>
+          <button type="button" id="closeSidebarBtn" class="btn-icon mobile-only" aria-label="Close">
+            ×
+          </button>
         </div>
 
         <nav class="nav-group" aria-label="Smart views">
           <button type="button" class="nav-item" data-view="my-day" aria-current="page">
-            <span class="nav-label" data-i18n="nav.myDay">Mein Tag</span>
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">☀</span>
+              <span class="nav-label" data-i18n="nav.myDay">Mein Tag</span>
+            </span>
             <span class="nav-count" id="countMyDay">0</span>
           </button>
           <button type="button" class="nav-item" data-view="starred">
-            <span class="nav-label" data-i18n="nav.starred">Wichtig</span>
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">★</span>
+              <span class="nav-label" data-i18n="nav.starred">Wichtig</span>
+            </span>
             <span class="nav-count" id="countStarred">0</span>
           </button>
           <button type="button" class="nav-item" data-view="planned">
-            <span class="nav-label" data-i18n="nav.planned">Geplant</span>
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">◷</span>
+              <span class="nav-label" data-i18n="nav.planned">Geplant</span>
+            </span>
             <span class="nav-count" id="countPlanned">0</span>
           </button>
         </nav>
@@ -52,13 +68,13 @@
               placeholder="Neue Liste..."
               required
             />
-            <button type="submit" class="btn-secondary" data-i18n="nav.createList">+</button>
+            <button type="submit" class="btn-secondary btn-compact" data-i18n="nav.createList">+</button>
           </form>
         </div>
 
         <div class="sidebar-footer">
           <button type="button" id="openImportBtn" class="btn-ghost" data-i18n="nav.import">
-            Import (Wunderlist / MS To Do)
+            Import
           </button>
           <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
             Einstellungen
@@ -68,15 +84,27 @@
 
       <main class="main-view">
         <header class="view-header">
-          <div>
-            <h1 id="viewTitle">Mein Tag</h1>
-            <p id="viewSubtitle" class="view-subtitle"></p>
+          <div class="header-title-group">
+            <button
+              type="button"
+              id="openSidebarBtn"
+              class="btn-icon mobile-only"
+              aria-label="Menu"
+              aria-controls="appSidebar"
+              aria-expanded="false"
+            >
+              ☰
+            </button>
+            <div>
+              <h1 id="viewTitle">Mein Tag</h1>
+              <p id="viewSubtitle" class="view-subtitle"></p>
+            </div>
           </div>
           <div class="header-actions">
-            <button type="button" id="shareListBtn" class="btn-secondary" hidden data-i18n="list.share">
-              Liste teilen
+            <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share">
+              Teilen
             </button>
-            <button type="button" id="langToggleBtn" class="btn-secondary" aria-label="Switch language">
+            <button type="button" id="langToggleBtn" class="btn-secondary btn-compact" aria-label="Switch language">
               DE / EN
             </button>
           </div>
@@ -103,19 +131,21 @@
             placeholder="Aufgabe hinzufügen..."
             required
           />
-          <label for="newTaskDueDate" class="sr-only" data-i18n="task.dueDate">Fälligkeitsdatum</label>
-          <input id="newTaskDueDate" type="date" />
-          <button
-            type="button"
-            id="newTaskStarBtn"
-            class="btn-icon"
-            aria-pressed="false"
-            data-i18n-aria="task.starAria"
-            title="Wichtig"
-          >
-            ☆
-          </button>
-          <button type="submit" class="btn-primary" data-i18n="task.addButton">Hinzufügen</button>
+          <div class="quick-add-controls">
+            <label for="newTaskDueDate" class="sr-only" data-i18n="task.dueDate">Fälligkeitsdatum</label>
+            <input id="newTaskDueDate" type="date" />
+            <button
+              type="button"
+              id="newTaskStarBtn"
+              class="btn-icon"
+              aria-pressed="false"
+              data-i18n-aria="task.starAria"
+              title="Wichtig"
+            >
+              ☆
+            </button>
+            <button type="submit" class="btn-primary btn-compact" data-i18n="task.addButton">Hinzufügen</button>
+          </div>
         </form>
 
         <ul id="activeTasksList" class="task-list"></ul>
@@ -131,12 +161,82 @@
       </main>
     </div>
 
+    <nav class="mobile-tab-bar" aria-label="Mobile navigation">
+      <button type="button" class="mobile-tab" data-mobile-view="my-day" aria-current="page">
+        <span class="mobile-tab-icon" aria-hidden="true">☀</span>
+        <span class="mobile-tab-label" data-i18n="nav.myDay">Mein Tag</span>
+      </button>
+      <button type="button" class="mobile-tab" data-mobile-view="starred">
+        <span class="mobile-tab-icon" aria-hidden="true">★</span>
+        <span class="mobile-tab-label" data-i18n="nav.starred">Wichtig</span>
+      </button>
+      <button type="button" class="mobile-tab" data-mobile-view="planned">
+        <span class="mobile-tab-icon" aria-hidden="true">◷</span>
+        <span class="mobile-tab-label" data-i18n="nav.planned">Geplant</span>
+      </button>
+      <button type="button" class="mobile-tab" id="mobileListsBtn">
+        <span class="mobile-tab-icon" aria-hidden="true">☰</span>
+        <span class="mobile-tab-label" data-i18n="nav.lists">Listen</span>
+      </button>
+    </nav>
+
+    <!-- Share & Device Pairing Modal -->
+    <dialog id="shareDialog" closedby="any" aria-labelledby="shareDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="shareDialogTitle" data-i18n="share.dialogTitle">Teilen & Geräte koppeln</h2>
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="shareDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+
+        <div class="dialog-body">
+          <section class="share-block">
+            <h3 class="share-heading" data-i18n="share.listSectionTitle">Personen zu einer Liste einladen</h3>
+            <p class="prose-note" data-i18n="share.listSectionHint"></p>
+            <div class="field-group">
+              <label for="shareListSelect" data-i18n="share.selectListLabel">Liste auswählen</label>
+              <select id="shareListSelect"></select>
+            </div>
+            <div class="copy-row">
+              <input id="shareInviteUrlInput" type="url" readonly aria-label="Invite URL" />
+              <button type="button" id="copyInviteUrlBtn" class="btn-primary btn-compact" data-i18n="share.copyInviteBtn">
+                Link kopieren
+              </button>
+              <button type="button" id="nativeShareInviteBtn" class="btn-secondary btn-compact" data-i18n="share.nativeShareBtn">
+                Teilen…
+              </button>
+            </div>
+          </section>
+
+          <div class="sidebar-divider"></div>
+
+          <section class="share-block">
+            <h3 class="share-heading" data-i18n="share.pairSectionTitle">Eigenes Handy & PC synchronisieren</h3>
+            <p class="prose-note" data-i18n="share.pairSectionHint"></p>
+            <div class="copy-row">
+              <input id="sharePairUrlInput" type="url" readonly aria-label="Pairing URL" />
+              <button type="button" id="copyPairUrlBtn" class="btn-primary btn-compact" data-i18n="share.copyPairBtn">
+                Koppellink kopieren
+              </button>
+              <button type="button" id="nativeSharePairBtn" class="btn-secondary btn-compact" data-i18n="share.nativeShareBtn">
+                Teilen…
+              </button>
+            </div>
+            <p class="field-hint">
+              <strong data-i18n="settings.syncKey">Sync-Key</strong>: <code id="shareSyncKeyCode"></code>
+            </p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
     <!-- Task Detail Modal -->
     <dialog id="taskDetailDialog" closedby="any" aria-labelledby="taskDetailDialogTitle">
       <div class="dialog-shell">
         <div class="dialog-header">
           <h2 id="taskDetailDialogTitle" data-i18n="task.steps">Details</h2>
-          <button type="button" class="btn-ghost" data-close-dialog="taskDetailDialog" data-i18n="dialog.close">
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="taskDetailDialog" data-i18n="dialog.close">
             Schließen
           </button>
         </div>
@@ -165,7 +265,7 @@
                 data-i18n-placeholder="task.addStepPlaceholder"
                 placeholder="Nächster Schritt..."
               />
-              <button type="button" id="detailAddStepBtn" class="btn-secondary" data-i18n="task.addStepButton">
+              <button type="button" id="detailAddStepBtn" class="btn-secondary btn-compact" data-i18n="task.addStepButton">
                 +
               </button>
             </div>
@@ -204,10 +304,10 @@
           </div>
 
           <div class="dialog-footer">
-            <button type="button" id="detailDeleteBtn" class="btn-danger" data-i18n="task.delete">
-              Aufgabe löschen
+            <button type="button" id="detailDeleteBtn" class="btn-danger btn-compact" data-i18n="task.delete">
+              Löschen
             </button>
-            <button type="submit" class="btn-primary" data-i18n="settings.save">Speichern</button>
+            <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
         </form>
       </div>
@@ -220,7 +320,7 @@
           <h2 id="importDialogTitle" data-i18n="importer.title">
             Aus Wunderlist oder Microsoft To Do importieren
           </h2>
-          <button type="button" class="btn-ghost" data-close-dialog="importDialog" data-i18n="dialog.close">
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="importDialog" data-i18n="dialog.close">
             Schließen
           </button>
         </div>
@@ -234,17 +334,17 @@
           </div>
 
           <div class="field-group">
-            <label for="importJsonInput" data-i18n="importer.pasteLabel">Oder JSON einfügen</label>
+            <label for="importJsonInput" data-i18n="importer.pasteLabel">Oder JSON / CSV einfügen</label>
             <textarea id="importJsonInput" rows="6" spellcheck="false"></textarea>
           </div>
 
           <p id="importErrorText" class="error-text" hidden></p>
 
           <div class="dialog-footer">
-            <button type="button" id="loadSampleImportBtn" class="btn-secondary" data-i18n="importer.loadSample">
-              Beispiel-Export laden
+            <button type="button" id="loadSampleImportBtn" class="btn-secondary btn-compact" data-i18n="importer.loadSample">
+              Demo-Daten
             </button>
-            <button type="submit" class="btn-primary" data-i18n="importer.submit">Jetzt importieren</button>
+            <button type="submit" class="btn-primary btn-compact" data-i18n="importer.submit">Importieren</button>
           </div>
         </form>
       </div>
@@ -255,7 +355,7 @@
       <div class="dialog-shell">
         <div class="dialog-header">
           <h2 id="settingsDialogTitle" data-i18n="settings.title">Einstellungen</h2>
-          <button type="button" class="btn-ghost" data-close-dialog="settingsDialog" data-i18n="dialog.close">
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="settingsDialog" data-i18n="dialog.close">
             Schließen
           </button>
         </div>
@@ -289,7 +389,7 @@
           <p id="settingsErrorText" class="error-text" hidden></p>
 
           <div class="dialog-footer">
-            <button type="submit" class="btn-primary" data-i18n="settings.save">Speichern</button>
+            <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
         </form>
       </div>

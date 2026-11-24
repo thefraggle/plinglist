@@ -74,7 +74,9 @@ function wireDialogLightDismiss(dialog: HTMLDialogElement): void {
 }
 
 function playPlingChime(): void {
-  const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const AudioCtx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioCtx) return;
   if (!audioContext) {
     audioContext = new AudioCtx();
@@ -140,12 +142,38 @@ function initApp(): void {
   });
 
   let activeView: SmartViewId = 'my-day';
-  let activeListId = store.getActiveLists()[0]?.id ?? 'list-tasks';
+  let activeListId = store.getDefaultTasksListId();
   let quickAddStarred = false;
   let editingTaskId: string | null = null;
   let hasSyncedOnce = false;
   let syncInFlight = false;
   let syncDebounceTimer: number | undefined;
+
+  const sidebar = document.getElementById('appSidebar') as HTMLElement;
+  const sidebarBackdrop = document.getElementById('sidebarBackdrop') as HTMLElement;
+  const openSidebarBtn = document.getElementById('openSidebarBtn') as HTMLButtonElement;
+
+  function openMobileDrawer(): void {
+    sidebar.classList.add('is-open');
+    sidebarBackdrop.hidden = false;
+    openSidebarBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMobileDrawer(): void {
+    sidebar.classList.remove('is-open');
+    sidebarBackdrop.hidden = true;
+    openSidebarBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  openSidebarBtn.addEventListener('click', openMobileDrawer);
+  document.getElementById('closeSidebarBtn')?.addEventListener('click', closeMobileDrawer);
+  document.getElementById('mobileListsBtn')?.addEventListener('click', openMobileDrawer);
+  sidebarBackdrop.addEventListener('click', closeMobileDrawer);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
+      closeMobileDrawer();
+    }
+  });
 
   async function runSyncNow(): Promise<void> {
     if (!navigator.onLine || syncInFlight) return;
@@ -175,15 +203,18 @@ function initApp(): void {
     }, 350);
   };
 
+  const shareDialog = document.getElementById('shareDialog') as HTMLDialogElement;
   const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
   const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
   const settingsDialog = document.getElementById('settingsDialog') as HTMLDialogElement;
-  [taskDialog, importDialog, settingsDialog].forEach(wireDialogLightDismiss);
+  [shareDialog, taskDialog, importDialog, settingsDialog].forEach(wireDialogLightDismiss);
 
   document.querySelectorAll<HTMLButtonElement>('[data-close-dialog]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const targetId = btn.dataset.closeDialog;
-      const target = targetId ? (document.getElementById(targetId) as HTMLDialogElement | null) : null;
+      const target = targetId
+        ? (document.getElementById(targetId) as HTMLDialogElement | null)
+        : null;
       if (target) void closeTopLayer(target);
     });
   });
@@ -195,7 +226,7 @@ function initApp(): void {
     item.className = 'toast';
     item.textContent = message;
     region.appendChild(item);
-    window.setTimeout(() => item.remove(), 2400);
+    window.setTimeout(() => item.remove(), 2600);
   }
 
   function applyTranslations(): void {
@@ -204,10 +235,12 @@ function initApp(): void {
       const key = el.dataset.i18n as TranslationKey;
       el.textContent = t(store.locale, key);
     });
-    document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]').forEach((el) => {
-      const key = el.dataset.i18nPlaceholder as TranslationKey;
-      el.placeholder = t(store.locale, key);
-    });
+    document
+      .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]')
+      .forEach((el) => {
+        const key = el.dataset.i18nPlaceholder as TranslationKey;
+        el.placeholder = t(store.locale, key);
+      });
     document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((el) => {
       const key = el.dataset.i18nAria as TranslationKey;
       el.setAttribute('aria-label', t(store.locale, key));
@@ -231,8 +264,8 @@ function initApp(): void {
 
     const leftBtn = document.createElement('button');
     leftBtn.type = 'button';
-    leftBtn.className = isSuggestion ? 'btn-secondary' : 'task-check-btn';
     if (isSuggestion) {
+      leftBtn.className = 'btn-secondary btn-compact';
       leftBtn.textContent = '+';
       leftBtn.title = t(store.locale, 'myDay.addToMyDay');
       leftBtn.setAttribute('aria-label', t(store.locale, 'myDay.addToMyDay'));
@@ -241,8 +274,14 @@ function initApp(): void {
         render();
       });
     } else {
-      leftBtn.textContent = task.completed ? '✓' : '';
+      leftBtn.className = 'task-check-btn';
       leftBtn.setAttribute('aria-label', t(store.locale, 'task.completeAria'));
+      const circle = document.createElement('span');
+      circle.className = 'task-check-circle';
+      circle.setAttribute('aria-hidden', 'true');
+      circle.textContent = task.completed ? '✓' : '';
+      leftBtn.appendChild(circle);
+
       leftBtn.addEventListener('click', () => {
         const wasCompleted = task.completed;
         const { nextRecurringTask } = store.toggleTaskCompleted(task.id, getLocalIsoDate());
@@ -287,7 +326,7 @@ function initApp(): void {
 
     const starBtn = document.createElement('button');
     starBtn.type = 'button';
-    starBtn.className = 'btn-icon';
+    starBtn.className = 'task-star-btn';
     starBtn.setAttribute('aria-pressed', String(task.starred));
     starBtn.setAttribute('aria-label', t(store.locale, 'task.starAria'));
     starBtn.textContent = task.starred ? '★' : '☆';
@@ -324,16 +363,28 @@ function initApp(): void {
       btn.setAttribute('aria-current', isCurrent ? 'page' : 'false');
     });
 
+    document.querySelectorAll<HTMLButtonElement>('[data-mobile-view]').forEach((btn) => {
+      const isCurrent = btn.dataset.mobileView === activeView;
+      btn.setAttribute('aria-current', isCurrent ? 'page' : 'false');
+    });
+    const mobileListsBtn = document.getElementById('mobileListsBtn');
+    mobileListsBtn?.setAttribute('aria-current', activeView === 'lists' ? 'page' : 'false');
+
     const listsNav = document.getElementById('customListsNav') as HTMLElement;
     listsNav.replaceChildren();
     for (const list of activeLists) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-item';
-      btn.setAttribute('aria-current', activeView === 'lists' && activeListId === list.id ? 'page' : 'false');
+      btn.setAttribute(
+        'aria-current',
+        activeView === 'lists' && activeListId === list.id ? 'page' : 'false',
+      );
 
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = list.shared ? `${list.title} (${t(store.locale, 'list.sharedBadge')})` : list.title;
+      labelSpan.textContent = list.shared
+        ? `${list.title} (${t(store.locale, 'list.sharedBadge')})`
+        : list.title;
       const countSpan = document.createElement('span');
       countSpan.className = 'nav-count';
       countSpan.textContent = String(
@@ -344,6 +395,7 @@ function initApp(): void {
       btn.addEventListener('click', () => {
         activeView = 'lists';
         activeListId = list.id;
+        closeMobileDrawer();
         render();
       });
       listsNav.appendChild(btn);
@@ -351,11 +403,9 @@ function initApp(): void {
 
     const viewTitle = document.getElementById('viewTitle') as HTMLElement;
     const viewSubtitle = document.getElementById('viewSubtitle') as HTMLElement;
-    const shareBtn = document.getElementById('shareListBtn') as HTMLButtonElement;
     const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
 
     let visibleTasks: TaskItem[] = [];
-    shareBtn.hidden = activeView !== 'lists';
     suggestionsSection.hidden = activeView !== 'my-day' || suggestions.length === 0;
 
     if (activeView === 'my-day') {
@@ -379,7 +429,9 @@ function initApp(): void {
 
     const suggestionsList = document.getElementById('suggestionsList') as HTMLUListElement;
     suggestionsList.replaceChildren(...suggestions.map((item) => createTaskElement(item, true)));
-    (document.getElementById('suggestionsCount') as HTMLElement).textContent = String(suggestions.length);
+    (document.getElementById('suggestionsCount') as HTMLElement).textContent = String(
+      suggestions.length,
+    );
 
     const openTasks = visibleTasks.filter((item) => !item.completed);
     const doneTasks = visibleTasks.filter((item) => item.completed);
@@ -397,6 +449,43 @@ function initApp(): void {
     completedListEl.replaceChildren(...doneTasks.map((item) => createTaskElement(item)));
   }
 
+  function updateShareInviteUrl(listId: string): void {
+    const appOrigin = window.location.origin;
+    const { inviteUrl } = store.shareList(listId, appOrigin);
+    (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value = inviteUrl;
+    render();
+    void runSyncNow();
+  }
+
+  function openShareModal(): void {
+    const activeLists = store.getActiveLists();
+    const selectEl = document.getElementById('shareListSelect') as HTMLSelectElement;
+    selectEl.replaceChildren();
+    for (const list of activeLists) {
+      const opt = document.createElement('option');
+      opt.value = list.id;
+      opt.textContent = list.title;
+      selectEl.appendChild(opt);
+    }
+
+    const initialListId =
+      activeView === 'lists' && activeLists.some((l) => l.id === activeListId)
+        ? activeListId
+        : (activeLists[0]?.id ?? store.getDefaultTasksListId());
+    selectEl.value = initialListId;
+
+    updateShareInviteUrl(initialListId);
+    (document.getElementById('sharePairUrlInput') as HTMLInputElement).value =
+      store.getPairingUrl(window.location.origin);
+    (document.getElementById('shareSyncKeyCode') as HTMLElement).textContent = store.syncKey;
+
+    const canNativeShare = typeof navigator.share === 'function';
+    (document.getElementById('nativeShareInviteBtn') as HTMLButtonElement).hidden = !canNativeShare;
+    (document.getElementById('nativeSharePairBtn') as HTMLButtonElement).hidden = !canNativeShare;
+
+    shareDialog.showModal();
+  }
+
   function renderDetailSteps(task: TaskItem): void {
     const stepsList = document.getElementById('detailStepsList') as HTMLUListElement;
     stepsList.replaceChildren();
@@ -406,7 +495,7 @@ function initApp(): void {
 
       const toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
-      toggleBtn.className = 'btn-secondary';
+      toggleBtn.className = 'btn-secondary btn-compact';
       toggleBtn.textContent = step.completed ? '✓' : '○';
       toggleBtn.addEventListener('click', () => {
         const updated = store.toggleTaskStep(task.id, step.id);
@@ -420,7 +509,7 @@ function initApp(): void {
 
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
-      removeBtn.className = 'btn-ghost';
+      removeBtn.className = 'btn-ghost btn-compact';
       removeBtn.textContent = '×';
       removeBtn.addEventListener('click', () => {
         const updated = store.deleteTaskStep(task.id, step.id);
@@ -441,8 +530,10 @@ function initApp(): void {
 
     (document.getElementById('detailTitleInput') as HTMLInputElement).value = task.title;
     (document.getElementById('detailDueDateInput') as HTMLInputElement).value = task.dueDate ?? '';
-    (document.getElementById('detailReminderInput') as HTMLInputElement).value = task.reminderAt ?? '';
-    (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value = task.recurrence ?? '';
+    (document.getElementById('detailReminderInput') as HTMLInputElement).value =
+      task.reminderAt ?? '';
+    (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value =
+      task.recurrence ?? '';
     (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value = task.note;
 
     const myDayBtn = document.getElementById('detailMyDayBtn') as HTMLButtonElement;
@@ -461,6 +552,14 @@ function initApp(): void {
   document.querySelectorAll<HTMLButtonElement>('.sidebar .nav-item[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
       activeView = btn.dataset.view as SmartViewId;
+      closeMobileDrawer();
+      render();
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-mobile-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeView = btn.dataset.mobileView as SmartViewId;
       render();
     });
   });
@@ -473,6 +572,7 @@ function initApp(): void {
     input.value = '';
     activeView = 'lists';
     activeListId = created.id;
+    closeMobileDrawer();
     render();
   });
 
@@ -490,7 +590,7 @@ function initApp(): void {
     if (!titleInput.value.trim()) return;
 
     const targetListId =
-      activeView === 'lists' ? activeListId : (store.getActiveLists()[0]?.id ?? 'list-tasks');
+      activeView === 'lists' ? activeListId : store.getDefaultTasksListId();
 
     store.addTask({
       title: titleInput.value,
@@ -508,12 +608,35 @@ function initApp(): void {
     render();
   });
 
-  document.getElementById('shareListBtn')?.addEventListener('click', async () => {
-    const { inviteUrl } = store.shareList(activeListId);
-    await navigator.clipboard?.writeText(inviteUrl).catch(() => undefined);
-    showToast(`${t(store.locale, 'list.inviteCopied')}: ${inviteUrl}`);
-    render();
-    void runSyncNow();
+  document.getElementById('shareListBtn')?.addEventListener('click', openShareModal);
+  document.getElementById('shareListSelect')?.addEventListener('change', (event) => {
+    updateShareInviteUrl((event.target as HTMLSelectElement).value);
+  });
+
+  document.getElementById('copyInviteUrlBtn')?.addEventListener('click', async () => {
+    const val = (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value;
+    await navigator.clipboard?.writeText(val).catch(() => undefined);
+    showToast(t(store.locale, 'list.inviteCopied'));
+  });
+
+  document.getElementById('copyPairUrlBtn')?.addEventListener('click', async () => {
+    const val = (document.getElementById('sharePairUrlInput') as HTMLInputElement).value;
+    await navigator.clipboard?.writeText(val).catch(() => undefined);
+    showToast(t(store.locale, 'share.pairCopied'));
+  });
+
+  document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
+    const url = (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value;
+    await navigator
+      .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url })
+      .catch(() => undefined);
+  });
+
+  document.getElementById('nativeSharePairBtn')?.addEventListener('click', async () => {
+    const url = (document.getElementById('sharePairUrlInput') as HTMLInputElement).value;
+    await navigator
+      .share?.({ title: 'Plinglist Sync', text: t(store.locale, 'share.pairSectionTitle'), url })
+      .catch(() => undefined);
   });
 
   document.getElementById('langToggleBtn')?.addEventListener('click', () => {
@@ -556,11 +679,14 @@ function initApp(): void {
   document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     if (!editingTaskId) return;
-    const recurrenceVal = (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value;
+    const recurrenceVal = (
+      document.getElementById('detailRecurrenceSelect') as HTMLSelectElement
+    ).value;
     store.updateTask(editingTaskId, {
       title: (document.getElementById('detailTitleInput') as HTMLInputElement).value,
       dueDate: (document.getElementById('detailDueDateInput') as HTMLInputElement).value || null,
-      reminderAt: (document.getElementById('detailReminderInput') as HTMLInputElement).value || null,
+      reminderAt:
+        (document.getElementById('detailReminderInput') as HTMLInputElement).value || null,
       recurrence: (recurrenceVal || null) as RecurrencePattern | null,
       note: (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value,
     });
@@ -569,6 +695,7 @@ function initApp(): void {
   });
 
   document.getElementById('openImportBtn')?.addEventListener('click', () => {
+    closeMobileDrawer();
     (document.getElementById('importErrorText') as HTMLElement).hidden = true;
     importDialog.showModal();
   });
@@ -580,7 +707,8 @@ function initApp(): void {
   });
 
   document.getElementById('loadSampleImportBtn')?.addEventListener('click', () => {
-    (document.getElementById('importJsonInput') as HTMLTextAreaElement).value = SAMPLE_WUNDERLIST_JSON;
+    (document.getElementById('importJsonInput') as HTMLTextAreaElement).value =
+      SAMPLE_WUNDERLIST_JSON;
   });
 
   document.getElementById('importForm')?.addEventListener('submit', (event) => {
@@ -603,10 +731,12 @@ function initApp(): void {
   });
 
   document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
+    closeMobileDrawer();
     (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
     (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value = store.syncKey;
     (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
-    (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked = store.soundEnabled;
+    (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked =
+      store.soundEnabled;
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
     settingsDialog.showModal();
   });
@@ -614,12 +744,12 @@ function initApp(): void {
   document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const errEl = document.getElementById('settingsErrorText') as HTMLElement;
-    const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value as
-      | 'de'
-      | 'en';
+    const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement)
+      .value as 'de' | 'en';
     const nextSyncKey = (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value;
     const nextUrl = (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value;
-    const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked;
+    const nextSound = (document.getElementById('settingsSoundCheckbox') as HTMLInputElement)
+      .checked;
 
     try {
       store.setSyncKey(nextSyncKey);
@@ -665,6 +795,23 @@ function initApp(): void {
 
   async function handleJoinParamOnStartup(): Promise<void> {
     const params = new URLSearchParams(window.location.search);
+    const pairKey = params.get('pair');
+    if (pairKey) {
+      try {
+        store.setSyncKey(pairKey);
+        params.delete('pair');
+        const cleanQuery = params.toString();
+        const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
+        window.history.replaceState({}, '', cleanUrl);
+        await store.syncWithServer();
+        hasSyncedOnce = true;
+        showToast(t(store.locale, 'toast.devicePaired'));
+        render();
+      } catch {
+        // Ignore invalid pairing key and proceed normally
+      }
+    }
+
     const joinToken = params.get('join');
     if (!joinToken) {
       void runSyncNow();
