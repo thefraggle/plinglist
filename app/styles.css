@@ -285,59 +285,12 @@ body {
 }
 
 .sidebar-footer {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.4rem;
-  margin-top: auto;
-  padding-top: 0.5rem;
-}
-
-.sidebar-footer-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.4rem;
-  align-items: center;
-}
-
-.sidebar-legal-row,
-.settings-meta-links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-.link-inline {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.link-inline:hover {
-  color: var(--text-primary);
-}
-
-.info-block {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-}
-
-.info-block h3 {
-  margin: 0;
-  font-size: 0.95rem;
-}
-
-.legal-scroll-body {
-  max-height: min(68vh, 34rem);
-  overflow-y: auto;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-color);
 }
 
 .main-view {
@@ -1007,4 +960,84 @@ input[readonly] {
   color: var(--brand-ink);
   font-weight: 600;
   box-shadow: var(--shadow-dialog);
+}
+
+/* Placed after global button styles so footer actions and inline links stay flat without box-shadow */
+.sidebar-footer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.sidebar-action-btn {
+  min-height: 2.15rem;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 0.5rem;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.sidebar-action-btn:hover {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.sidebar-legal-row,
+.settings-meta-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.sidebar-legal-row {
+  justify-content: center;
+  padding: 0.1rem 0.25rem;
+}
+
+button.link-inline,
+a.link-inline {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+button.link-inline:hover,
+a.link-inline:hover {
+  color: var(--text-primary);
+}
+
+.info-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.info-block h3 {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.legal-scroll-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-height: min(65vh, 32rem);
+  overflow-y: auto;
+  padding-top: 0.25rem;
 }

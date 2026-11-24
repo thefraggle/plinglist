@@ -89,24 +89,22 @@
 
         <div class="sidebar-footer">
           <div class="sidebar-footer-actions">
-            <button type="button" id="openSettingsBtn" class="btn-ghost" data-i18n="nav.settings">
+            <button type="button" id="openSettingsBtn" class="sidebar-action-btn" data-i18n="nav.settings">
               Einstellungen
             </button>
-            <button
-              type="button"
-              id="openHelpBtn"
-              class="btn-icon"
-              data-i18n-aria="help.openAria"
-              title="Hilfe &amp; Schnellstart"
-            >
-              ?
+            <button type="button" id="openHelpBtn" class="sidebar-action-btn" data-i18n="nav.help">
+              Hilfe &amp; Tour
             </button>
           </div>
           <div class="sidebar-legal-row">
             <span>© 2026 Goork</span>
             <span aria-hidden="true">·</span>
-            <button type="button" id="openLegalBtn" class="link-inline" data-i18n="legal.openLink">
-              Impressum &amp; Datenschutz
+            <button type="button" id="openImprintBtn" class="link-inline" data-i18n="legal.tabImprint">
+              Impressum
+            </button>
+            <span aria-hidden="true">·</span>
+            <button type="button" id="openPrivacyBtn" class="link-inline" data-i18n="legal.tabPrivacy">
+              Datenschutz
             </button>
           </div>
         </div>
@@ -516,7 +514,9 @@
             <div class="settings-meta-links">
               <button type="button" id="openSettingsHelpBtn" class="link-inline" data-i18n="nav.help">Hilfe &amp; Tour</button>
               <span aria-hidden="true">·</span>
-              <button type="button" id="openSettingsLegalBtn" class="link-inline" data-i18n="legal.openLink">Impressum &amp; Datenschutz</button>
+              <button type="button" id="openSettingsImprintBtn" class="link-inline" data-i18n="legal.tabImprint">Impressum</button>
+              <span aria-hidden="true">·</span>
+              <button type="button" id="openSettingsPrivacyBtn" class="link-inline" data-i18n="legal.tabPrivacy">Datenschutz</button>
               <span aria-hidden="true">·</span>
               <a href="https://github.com/thefraggle/plinglist" target="_blank" rel="noopener noreferrer" class="link-inline">GitHub (AGPLv3)</a>
             </div>
@@ -627,28 +627,105 @@
     <dialog id="legalDialog" closedby="any" aria-labelledby="legalDialogTitle">
       <div class="dialog-shell">
         <div class="dialog-header">
-          <h2 id="legalDialogTitle" data-i18n="legal.title">Impressum, Lizenz &amp; Datenschutz</h2>
+          <h2 id="legalDialogTitle" data-i18n="legal.title">Rechtliches &amp; Datenschutz</h2>
           <button type="button" class="btn-ghost btn-compact" data-close-dialog="legalDialog" data-i18n="dialog.close">
             Schließen
           </button>
         </div>
-        <div class="dialog-body legal-scroll-body">
-          <div class="info-block">
-            <h3 data-i18n="legal.imprintHeading"></h3>
-            <p class="prose-note" data-i18n="legal.imprintBody"></p>
+
+        <div class="dialog-body">
+          <div class="settings-tabs" role="tablist">
+            <button
+              type="button"
+              class="settings-tab"
+              role="tab"
+              data-legal-tab="imprint"
+              aria-selected="true"
+              data-i18n="legal.tabImprint"
+            >
+              Impressum
+            </button>
+            <button
+              type="button"
+              class="settings-tab"
+              role="tab"
+              data-legal-tab="privacy"
+              aria-selected="false"
+              data-i18n="legal.tabPrivacy"
+            >
+              Datenschutz
+            </button>
           </div>
-          <div class="sidebar-divider"></div>
-          <div class="info-block">
-            <h3 data-i18n="legal.copyrightHeading"></h3>
-            <p class="prose-note" data-i18n="legal.copyrightBody"></p>
-          </div>
-          <div class="sidebar-divider"></div>
-          <div class="info-block">
-            <h3 data-i18n="legal.privacyHeading"></h3>
-            <p class="prose-note" data-i18n="legal.privacyLocalBody"></p>
-            <p class="prose-note" data-i18n="legal.privacySyncBody"></p>
-            <p class="prose-note" data-i18n="legal.privacyTelemetryBody"></p>
-          </div>
+
+          <section class="legal-scroll-body" data-legal-panel="imprint">
+            <div class="info-block">
+              <h3 data-i18n="legal.ddgHeading">Angaben gemäß § 5 DDG</h3>
+              <p class="prose-note" data-i18n="legal.ddgIntro"></p>
+              <p class="prose-note">
+                <strong>Daniel Notthoff</strong><br />
+                Rudolf-Virchow-Str. 20<br />
+                58300 Wetter<br />
+                <span data-i18n="legal.countryGermany">Deutschland</span>
+              </p>
+            </div>
+
+            <div class="info-block">
+              <h3 data-i18n="legal.contactHeading">Kontakt</h3>
+              <p class="prose-note">
+                Tel: +49 2335 8873531<br />
+                E-Mail: <a href="mailto:hey@goork.de" class="link-inline">hey@goork.de</a><br />
+                Web: <a href="https://notthoff.org" target="_blank" rel="noopener noreferrer" class="link-inline">notthoff.org</a>
+              </p>
+            </div>
+
+            <div class="info-block">
+              <h3 data-i18n="legal.vatHeading">Steuer &amp; Identifikation</h3>
+              <p class="prose-note" data-i18n="legal.vatBody"></p>
+            </div>
+
+            <div class="info-block">
+              <h3 data-i18n="legal.mstvHeading">Redaktionell verantwortlich (§ 18 Abs. 2 MStV)</h3>
+              <p class="prose-note">Daniel Notthoff · Rudolf-Virchow-Str. 20 · 58300 Wetter</p>
+            </div>
+
+            <div class="sidebar-divider"></div>
+
+            <div class="info-block">
+              <h3 data-i18n="legal.liabilityHeading">Haftungshinweis</h3>
+              <p class="prose-note" data-i18n="legal.liabilityBody"></p>
+            </div>
+
+            <div class="info-block">
+              <h3 data-i18n="legal.copyrightHeading">Urheberrecht &amp; Open-Source-Lizenz</h3>
+              <p class="prose-note" data-i18n="legal.copyrightBody"></p>
+              <p class="prose-note">
+                <a href="https://github.com/thefraggle/plinglist" target="_blank" rel="noopener noreferrer" class="link-inline">github.com/thefraggle/plinglist (AGPLv3)</a>
+              </p>
+            </div>
+          </section>
+
+          <section class="legal-scroll-body" data-legal-panel="privacy" hidden>
+            <div class="info-block">
+              <h3 data-i18n="legal.priv1Heading">1. Verantwortlicher</h3>
+              <p class="prose-note" data-i18n="legal.priv1Body"></p>
+            </div>
+            <div class="info-block">
+              <h3 data-i18n="legal.priv2Heading">2. Local-First &amp; Zero-Auth</h3>
+              <p class="prose-note" data-i18n="legal.priv2Body"></p>
+            </div>
+            <div class="info-block">
+              <h3 data-i18n="legal.priv3Heading">3. Cloud-Sync &amp; Server-Hosting</h3>
+              <p class="prose-note" data-i18n="legal.priv3Body"></p>
+            </div>
+            <div class="info-block">
+              <h3 data-i18n="legal.priv4Heading">4. Anonyme Diagnosedaten (Umami)</h3>
+              <p class="prose-note" data-i18n="legal.priv4Body"></p>
+            </div>
+            <div class="info-block">
+              <h3 data-i18n="legal.priv5Heading">5. Deine Rechte nach DSGVO</h3>
+              <p class="prose-note" data-i18n="legal.priv5Body"></p>
+            </div>
+          </section>
         </div>
       </div>
     </dialog>

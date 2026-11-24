@@ -32,21 +32,38 @@ export const TRANSLATIONS = {
     'help.tipsTitle': 'Tips & Shortcuts',
     'help.tipsBody':
       'Press Enter to add a task · Click any task to edit steps, reminders, recurrence, and notes · Press ESC to close dialogs.',
-    'legal.openLink': 'Imprint & Privacy',
-    'legal.title': 'Imprint, License & Privacy Policy',
-    'legal.imprintHeading': 'Imprint (§ 5 DDG & § 18 Abs. 2 MStV)',
-    'legal.imprintBody':
-      'Daniel Notthoff · Rudolf-Virchow-Str. 20 · 58300 Wetter · Germany · Phone: +49 2335 8873531 · Email: hey@goork.de · Web: notthoff.org · Small business according to § 19 UStG (no VAT charged) · Business ID (W-IdNr.): DE448013678-00001',
+    'legal.title': 'Legal & Privacy Policy',
+    'legal.tabImprint': 'Imprint',
+    'legal.tabPrivacy': 'Privacy',
+    'legal.countryGermany': 'Germany',
+    'legal.ddgHeading': 'Operator Information (§ 5 DDG)',
+    'legal.ddgIntro': 'This imprint applies to Plinglist (plinglist.app & plinglist.com):',
+    'legal.contactHeading': 'Contact',
+    'legal.vatHeading': 'Tax & Business ID',
+    'legal.vatBody':
+      'Small business according to § 19 UStG (no VAT charged or shown) · Business ID (W-IdNr.): DE448013678-00001',
+    'legal.mstvHeading': 'Editorial Responsibility (§ 18 Abs. 2 MStV)',
+    'legal.liabilityHeading': 'Disclaimer',
+    'legal.liabilityBody':
+      'Plinglist is an organizational tool. Despite careful operation, we assume no liability for continuous server availability or missed reminders due to browser/OS restrictions.',
     'legal.copyrightHeading': 'Copyright & Open-Source License',
     'legal.copyrightBody':
-      '© 2026 Daniel Notthoff (Goork). Core application and sync server source code are licensed under GNU Affero General Public License v3.0 (AGPLv3). The "Plinglist" name, logo, and official "Pling" sound are protected by copyright and trademark (see TRADEMARK.md).',
-    'legal.privacyHeading': 'Privacy Policy (GDPR)',
-    'legal.privacyLocalBody':
-      '1. Local-First & Zero-Auth: Plinglist requires no user account, email address, or password and sets no tracking cookies. Your lists, tasks, and preferences are stored locally in your browser (localStorage).',
-    'legal.privacySyncBody':
-      '2. Cloud Sync & Hosting (Contabo Germany): When syncing via plinglist.app, your lists and tasks are stored under your pseudonymous Sync Key or list invite token on servers located in Germany (Contabo GmbH, DPA pursuant to Art. 28 GDPR) solely to synchronize your devices and shared lists (Art. 6(1)(b) GDPR).',
-    'legal.privacyTelemetryBody':
-      '3. Anonymous Diagnostic Telemetry (Self-Hosted Umami): On plinglist.app, we use our self-hosted, cookie-free Umami instance in Germany (telemetry.goork.de) to record anonymous diagnostic metadata (app load without URL tokens, browser/OS type, and anonymous feature counters such as task completion or import). Task titles, list names, notes, or Sync Keys are never transmitted. Legal basis: Art. 6(1)(f) GDPR. You can disable diagnostic telemetry anytime in Settings → General; on self-hosted instances it is permanently disabled.',
+      '© 2026 Daniel Notthoff (Goork). Core app and sync server code are licensed under AGPLv3. The "Plinglist" name, logo, and official "Pling" sound remain protected by copyright and trademark (TRADEMARK.md).',
+    'legal.priv1Heading': '1. Data Controller',
+    'legal.priv1Body':
+      'Daniel Notthoff, Rudolf-Virchow-Str. 20, 58300 Wetter, Germany · Phone: +49 2335 8873531 · Email: hey@goork.de',
+    'legal.priv2Heading': '2. Local-First & Zero-Auth',
+    'legal.priv2Body':
+      'Plinglist requires no account, email, or password, uses no external font CDNs, and sets no tracking cookies. Lists, tasks, and preferences stay in your browser localStorage (§ 25(2)(2) TDDDG).',
+    'legal.priv3Heading': '3. Cloud Sync & Hosting (Contabo Germany)',
+    'legal.priv3Body':
+      'When using plinglist.app cloud sync, lists and tasks are stored under your pseudonymous Sync Key or invite token on servers in Germany (Contabo GmbH, DPA pursuant to Art. 28 GDPR) strictly to sync your devices and shared lists (Art. 6(1)(b) GDPR).',
+    'legal.priv4Heading': '4. Anonymous Diagnostic Telemetry (Umami)',
+    'legal.priv4Body':
+      'Only on plinglist.app do we run our self-hosted, cookie-free Umami instance in Germany (telemetry.goork.de, Art. 6(1)(f) GDPR) to record app load without URL tokens, browser/OS type, and anonymous feature counters. Task titles, list names, notes, or Sync Keys are never sent. Disable anytime in Settings → General; permanently off when self-hosted.',
+    'legal.priv5Heading': '5. Your Rights (GDPR)',
+    'legal.priv5Body':
+      'You have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18), data portability (Art. 20), objection (Art. 21), and to lodge a complaint with a supervisory authority.',
     'myDay.suggestionsTitle': 'Suggestions for today',
     'myDay.suggestionsToggle': 'Suggestions',
     'myDay.addToMyDay': 'Add to My Day',
@@ -134,7 +151,7 @@ export const TRANSLATIONS = {
     'settings.telemetrySelfHostedHint': 'Permanently disabled on self-hosted instances.',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.12 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.13 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -178,21 +195,38 @@ export const TRANSLATIONS = {
     'help.tipsTitle': 'Tipps & Tastatur',
     'help.tipsBody':
       'Enter legt eine Aufgabe an · Klick auf eine Aufgabe öffnet Teilschritte, Erinnerung, Wiederholung & Notizen · ESC schließt jeden Dialog.',
-    'legal.openLink': 'Impressum & Datenschutz',
-    'legal.title': 'Impressum, Lizenz & Datenschutz',
-    'legal.imprintHeading': 'Impressum (§ 5 DDG & § 18 Abs. 2 MStV)',
-    'legal.imprintBody':
-      'Daniel Notthoff · Rudolf-Virchow-Str. 20 · 58300 Wetter · Deutschland · Telefon: +49 2335 8873531 · E-Mail: hey@goork.de · Website: notthoff.org · Kleinunternehmer gemäß § 19 UStG (keine Umsatzsteuer ausgewiesen) · Wirtschafts-Identifikationsnummer (W-IdNr.): DE448013678-00001',
+    'legal.title': 'Rechtliches & Datenschutz',
+    'legal.tabImprint': 'Impressum',
+    'legal.tabPrivacy': 'Datenschutz',
+    'legal.countryGermany': 'Deutschland',
+    'legal.ddgHeading': 'Angaben gemäß § 5 DDG',
+    'legal.ddgIntro': 'Dieses Impressum gilt für Plinglist (plinglist.app & plinglist.com):',
+    'legal.contactHeading': 'Kontakt',
+    'legal.vatHeading': 'Umsatzsteuer & Identifikation',
+    'legal.vatBody':
+      'Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen (Kleinunternehmerregelung) · Wirtschafts-Identifikationsnummer (W-IdNr.): DE448013678-00001',
+    'legal.mstvHeading': 'Verantwortlich (§ 18 Abs. 2 MStV)',
+    'legal.liabilityHeading': 'Haftung für Inhalte & Erinnerungen',
+    'legal.liabilityBody':
+      'Plinglist ist ein organisatorisches Hilfsmittel. Trotz größter Sorgfalt übernehmen wir keine Gewähr für ständige Serververfügbarkeit oder verpasste Browser-/System-Erinnerungen.',
     'legal.copyrightHeading': 'Urheberrecht & Open-Source-Lizenz',
     'legal.copyrightBody':
-      '© 2026 Daniel Notthoff (Goork). Der Quellcode der Kern-App und des Sync-Servers ist unter der GNU Affero General Public License v3.0 (AGPLv3) lizenziert. Der Name „Plinglist“, das Logo und der offizielle „Pling“-Klang sind urheber- und markenrechtlich geschützt (siehe TRADEMARK.md).',
-    'legal.privacyHeading': 'Datenschutzerklärung (DSGVO)',
-    'legal.privacyLocalBody':
-      '1. Local-First & Zero-Auth: Plinglist benötigt kein Benutzerkonto, keine E-Mail-Adresse und kein Passwort und setzt keine Tracking-Cookies. Listen, Aufgaben und Einstellungen werden lokal im Browser (localStorage) gespeichert.',
-    'legal.privacySyncBody':
-      '2. Cloud-Synchronisation & Hosting (Contabo Deutschland): Bei der Synchronisation über plinglist.app werden deine Listen und Aufgaben unter deinem pseudonymen Sync-Key bzw. Einladungs-Token auf Servern in Deutschland (Contabo GmbH, AVV gemäß Art. 28 DSGVO) gespeichert, ausschließlich um deine Geräte und geteilten Listen zu synchronisieren (Art. 6 Abs. 1 lit. b DSGVO).',
-    'legal.privacyTelemetryBody':
-      '3. Anonyme Diagnose-Telemetrie (Umami selbstgehostet): Auf plinglist.app nutzen wir eine eigene, in Deutschland selbstgehostete und cookie-freie Umami-Instanz (telemetry.goork.de) für anonyme Diagnosedaten (App-Aufruf ohne URL-Tokens, Browser-/OS-Typ sowie anonyme Funktionszähler wie „Aufgabe erledigt“ oder „Import“). Aufgabentitel, Listennamen, Notizen oder Sync-Keys werden niemals übertragen. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO. Du kannst die Diagnosedaten jederzeit unter Einstellungen → Allgemein deaktivieren; bei Self-Hosting sind sie dauerhaft inaktiv.',
+      '© 2026 Daniel Notthoff (Goork). Quellcode der Kern-App und des Sync-Servers unter AGPLv3. Name „Plinglist“, Logo und offizieller „Pling“-Sound unterliegen dem Urheber- und Markenrecht (TRADEMARK.md).',
+    'legal.priv1Heading': '1. Verantwortlicher',
+    'legal.priv1Body':
+      'Daniel Notthoff, Rudolf-Virchow-Str. 20, 58300 Wetter, Deutschland · Telefon: +49 2335 8873531 · E-Mail: hey@goork.de',
+    'legal.priv2Heading': '2. Local-First & Zero-Auth',
+    'legal.priv2Body':
+      'Plinglist benötigt kein Benutzerkonto, keine E-Mail-Adresse und kein Passwort, lädt keine externen Font-CDNs und setzt keine Tracking-Cookies. Listen, Aufgaben und Einstellungen bleiben lokal im browser-eigenen localStorage (§ 25 Abs. 2 Nr. 2 TDDDG).',
+    'legal.priv3Heading': '3. Cloud-Sync & Hosting (Contabo Deutschland)',
+    'legal.priv3Body':
+      'Bei Nutzung des Syncs auf plinglist.app werden Listen und Aufgaben unter deinem pseudonymen Sync-Key bzw. Einladungs-Token auf Servern in Deutschland (Contabo GmbH, AVV gem. Art. 28 DSGVO) gespeichert, ausschließlich zur Synchronisation deiner Geräte und geteilten Listen (Art. 6 Abs. 1 lit. b DSGVO).',
+    'legal.priv4Heading': '4. Anonyme Diagnosedaten (Umami selbstgehostet)',
+    'legal.priv4Body':
+      'Ausschließlich auf plinglist.app nutzen wir eine eigene, in Deutschland selbstgehostete und cookie-freie Umami-Instanz (telemetry.goork.de, Art. 6 Abs. 1 lit. f DSGVO) für anonyme Diagnosedaten (App-Aufruf ohne URL-Tokens, Browser-/OS-Typ, anonyme Funktionszähler). Aufgabentitel, Listennamen, Notizen oder Sync-Keys werden niemals übertragen. Jederzeit unter Einstellungen → Allgemein deaktivierbar; bei Self-Hosting dauerhaft inaktiv.',
+    'legal.priv5Heading': '5. Deine Rechte nach DSGVO',
+    'legal.priv5Body':
+      'Dir stehen die Rechte auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung (Art. 18), Datenübertragbarkeit (Art. 20), Widerspruch (Art. 21) sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde zu.',
     'myDay.suggestionsTitle': 'Vorschläge für heute',
     'myDay.suggestionsToggle': 'Vorschläge',
     'myDay.addToMyDay': 'Zu Mein Tag hinzufügen',
@@ -280,7 +314,7 @@ export const TRANSLATIONS = {
     'settings.telemetrySelfHostedHint': 'Bei Self-Hosting dauerhaft deaktiviert.',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.12 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.13 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

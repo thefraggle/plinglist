@@ -570,8 +570,12 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="editSettingsSyncKeyBtn"/);
   assert.match(html, /id="helpDialog"/);
   assert.match(html, /id="legalDialog"/);
+  assert.match(html, /data-legal-tab="imprint"/);
+  assert.match(html, /data-legal-tab="privacy"/);
+  assert.match(html, /id="openImprintBtn"/);
+  assert.match(html, /id="openPrivacyBtn"/);
   assert.match(html, /id="settingsTelemetryCheckbox"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.12/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.13/);
   assert.equal(UMAMI_APP_WEBSITE_ID, '6d1cc9ed-af01-4760-8f34-6e2c20a80f72');
 });
 

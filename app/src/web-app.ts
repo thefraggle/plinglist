@@ -1111,20 +1111,43 @@ function initApp(): void {
     settingsDialog.showModal();
   });
 
+  function selectLegalTab(tabName: 'imprint' | 'privacy'): void {
+    document.querySelectorAll<HTMLButtonElement>('[data-legal-tab]').forEach((tab) => {
+      tab.setAttribute('aria-selected', String(tab.dataset.legalTab === tabName));
+    });
+    document.querySelectorAll<HTMLElement>('[data-legal-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.legalPanel !== tabName;
+    });
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('[data-legal-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.legalTab as 'imprint' | 'privacy' | undefined;
+      if (target) selectLegalTab(target);
+    });
+  });
+
   const openHelpModal = (): void => {
     closeMobileDrawer();
     if (settingsDialog.open) settingsDialog.close();
     helpDialog.showModal();
   };
-  const openLegalModal = (): void => {
+  const openLegalModal = (tabName: 'imprint' | 'privacy' = 'imprint'): void => {
     closeMobileDrawer();
     if (settingsDialog.open) settingsDialog.close();
+    selectLegalTab(tabName);
     legalDialog.showModal();
   };
   document.getElementById('openHelpBtn')?.addEventListener('click', openHelpModal);
   document.getElementById('openSettingsHelpBtn')?.addEventListener('click', openHelpModal);
-  document.getElementById('openLegalBtn')?.addEventListener('click', openLegalModal);
-  document.getElementById('openSettingsLegalBtn')?.addEventListener('click', openLegalModal);
+  document.getElementById('openImprintBtn')?.addEventListener('click', () => openLegalModal('imprint'));
+  document
+    .getElementById('openSettingsImprintBtn')
+    ?.addEventListener('click', () => openLegalModal('imprint'));
+  document.getElementById('openPrivacyBtn')?.addEventListener('click', () => openLegalModal('privacy'));
+  document
+    .getElementById('openSettingsPrivacyBtn')
+    ?.addEventListener('click', () => openLegalModal('privacy'));
 
   document.getElementById('editSettingsSyncKeyBtn')?.addEventListener('click', () => {
     const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
