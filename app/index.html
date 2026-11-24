@@ -101,6 +101,12 @@
             </div>
           </div>
           <div class="header-actions">
+            <button type="button" id="renameListBtn" class="btn-secondary btn-compact" data-i18n="list.rename" hidden>
+              Umbenennen
+            </button>
+            <button type="button" id="deleteListBtn" class="btn-danger btn-compact" data-i18n="list.delete" hidden>
+              Liste löschen
+            </button>
             <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share">
               Teilen
             </button>
@@ -179,6 +185,28 @@
         <span class="mobile-tab-label" data-i18n="nav.lists">Listen</span>
       </button>
     </nav>
+
+    <!-- Rename List Modal -->
+    <dialog id="renameListDialog" closedby="any" aria-labelledby="renameListDialogTitle">
+      <div class="dialog-shell">
+        <div class="dialog-header">
+          <h2 id="renameListDialogTitle" data-i18n="list.renameDialogTitle">Liste umbenennen</h2>
+          <button type="button" class="btn-ghost btn-compact" data-close-dialog="renameListDialog" data-i18n="dialog.close">
+            Schließen
+          </button>
+        </div>
+
+        <form id="renameListForm" class="dialog-body">
+          <div class="field-group">
+            <label for="renameListInput" class="sr-only" data-i18n="list.renameDialogTitle">Liste umbenennen</label>
+            <input id="renameListInput" type="text" autocomplete="off" maxlength="80" required />
+          </div>
+          <div class="dialog-footer">
+            <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
 
     <!-- Share & Device Pairing Modal -->
     <dialog id="shareDialog" closedby="any" aria-labelledby="shareDialogTitle">

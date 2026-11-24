@@ -80,8 +80,9 @@ PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-- **`lists` table:** `(id TEXT PRIMARY KEY, invite_token TEXT, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with index `idx_lists_invite`.
+- **`lists` table:** `(id TEXT PRIMARY KEY, owner_sync_key TEXT, invite_token TEXT, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with indexes `idx_lists_invite` and `idx_lists_owner`.
 - **`tasks` table:** `(id TEXT PRIMARY KEY, list_id TEXT NOT NULL, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with index `idx_tasks_list_hlc`.
+- **`entitlements` table:** `(user_key TEXT PRIMARY KEY, plan TEXT NOT NULL, expires_at_ms INTEGER, source TEXT NOT NULL, updated_at TEXT NOT NULL)` storing normalized Stripe/RevenueCat Pro states.
 - **Atomic Sync Transactions:** `applyAndPullDeltas` wraps incoming list and task merges in `BEGIN IMMEDIATE ... COMMIT` (with `ROLLBACK` on error) so concurrent sync requests remain consistent.
 
 ---
@@ -91,14 +92,16 @@ PRAGMA busy_timeout = 5000;
 | Method & Path | Purpose | Notes |
 | :--- | :--- | :--- |
 | `GET /api/health` | Liveness & healthcheck | Returns `{ status: "ok", service: "plinglist-app", cloudExtensionEnabled }` |
-| `POST /api/v1/sync` | Idempotent HLC delta push & pull | Merges `clientLists` & `clientTasks`, returns deltas newer than `sinceHlc` + new `cursorHlc` |
+| `POST /api/v1/sync` | Idempotent HLC delta push & pull | Merges `clientLists` & `clientTasks`, returns deltas newer than `sinceHlc` + new `cursorHlc` (returns `403 PRO_ENTITLEMENT_REQUIRED` when `CLOUD_ENFORCE_ENTITLEMENTS=true` without active entitlement) |
 | `POST /api/v1/invites/:token/join` | Resolve shared list invite | Returns `{ list }` or `404 INVITE_NOT_FOUND` |
 | `GET /join/:token` | Browser invite entry | `302` redirect to `${PUBLIC_BASE_URL}/?join=<token>` |
+| `POST /api/v1/cloud/webhooks/stripe` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists Stripe `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
+| `POST /api/v1/cloud/webhooks/revenuecat` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies optional `Bearer ${CLOUD_WEBHOOK_SECRET}`, persists RevenueCat `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
 | `OPTIONS /api/*` | CORS preflight | Returns `204` with `Access-Control-Allow-Origin: *` |
 
 ---
 
 ## 6. Open-Core & Brand Separation
 
-- **Public Repo (`plinglist`, AGPLv3):** Contains the complete local-first app, core HLC engine, importers, and self-hosted SQLite WAL sync server. Uses a neutral CC0 Web Audio synthesizer chime and no paywall enforcement.
-- **Private Cloud Repo (`./cloud/`, gitignored):** Holds Stripe/RevenueCat entitlement checks (`CloudEntitlementGuard`), APNs/FCM push notification payload builders, Contabo deployment workflows, and protected Plinglist trademarks/audio (`TRADEMARK.md`).
+- **Public Repo (`plinglist`, AGPLv3):** Contains the complete local-first app (with `getDefaultServerUrl()` same-origin resolution), core HLC engine, importers, and self-hosted SQLite WAL sync server. Uses a neutral CC0 Web Audio synthesizer chime and no paywall enforcement by default.
+- **Private Cloud Repo (`./cloud/`, gitignored):** Holds Stripe/RevenueCat entitlement checks (`CloudEntitlementGuard`), APNs/FCM push notification payload builders, Contabo deployment workflows, and protected Plinglist trademarks/audio (`TRADEMARK.md`). During release builds, `apply-brand-overlay.sh` copies protected assets into `app/public/` and `scripts/build-app.mjs` mirrors `app/public/` into `app/dist/`.

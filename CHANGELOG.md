@@ -2,6 +2,19 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.4] - 2026-11-24
+
+### Added
+- **Custom List Rename & Soft-Delete (`app/src/store.ts`, `app/src/web-app.ts`):** Added `renameList` (`#renameListDialog`) and `deleteList` (HLC soft-delete propagating to list tasks while guarding the last remaining list) with bilingual EN/DE strings.
+- **Local Reminder Notifications (`packages/core/src/views.ts`, `app/src/web-app.ts`):** Added `getDueReminderTasks` and browser toast + chime + Web `Notification` dispatch for due `reminderAt` timestamps.
+- **Cloud Entitlement Persistence & Billing Webhooks (`server/src/sqlite-repo.ts`, `server/src/index.ts`):** Added SQLite `entitlements` table, `POST /api/v1/cloud/webhooks/stripe` & `/api/v1/cloud/webhooks/revenuecat` handlers with optional `CLOUD_WEBHOOK_SECRET` bearer verification, and `CLOUD_ENFORCE_ENTITLEMENTS` guard wiring.
+- **Brand Audio Overlay Runtime Support (`scripts/build-app.mjs`, `app/src/web-app.ts`):** `build-app.mjs` now copies `app/public/` into `app/dist/` and `playPlingChime()` loads `./audio/pling.wav` into an `AudioBuffer` when present, falling back to the CC0 synth.
+
+### Fixed
+- **Same-Origin Default Server URL (`app/src/config.ts`, `app/src/store.ts`):** Added `getDefaultServerUrl()` so web/PWA deployments default to `window.location.origin` (same-origin sync out of the box) and fall back to `https://api.plinglist.app` for non-web/Capacitor origins.
+- **Offline-Complete Service Worker (`app/sw.js`):** Expanded `ASSETS` precache (`plinglist-app-v2`) to include all compiled ES modules under `app/src/` and `packages/core/src/`, added old-cache cleanup on `activate`, and bypassed cache interception for `/api/` and `/join/`.
+- **Self-Contained Docker Compose (`docker-compose.yml`):** Replaced the unbuilt 2-container setup with a single self-contained `plinglist-app` service (`build: .`).
+
 ## [0.1.3] - 2026-11-24
 
 ### Added

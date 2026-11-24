@@ -1,29 +1,17 @@
 services:
-  plinglist-server:
-    image: node:22-alpine
-    container_name: plinglist-server
-    working_dir: /app
-    command: ["npm", "run", "start", "--workspace=@plinglist/server"]
-    env_file:
-      - ./server/.env
+  plinglist-app:
+    build: .
+    container_name: plinglist-app
     environment:
       - NODE_ENV=production
-      - PORT=3001
+      - PORT=${PORT:-3001}
       - SQLITE_PATH=/app/data/plinglist.db
+      - CLOUD_EXTENSION_ENABLED=${CLOUD_EXTENSION_ENABLED:-false}
+      - CLOUD_ENFORCE_ENTITLEMENTS=${CLOUD_ENFORCE_ENTITLEMENTS:-false}
+      - CLOUD_WEBHOOK_SECRET=${CLOUD_WEBHOOK_SECRET:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:3001}
     volumes:
-      - .:/app:ro
       - ./data:/app/data
     ports:
-      - "3001:3001"
-    restart: unless-stopped
-
-  plinglist-app:
-    image: nginx:alpine
-    container_name: plinglist-app
-    depends_on:
-      - plinglist-server
-    ports:
-      - "8080:80"
-    volumes:
-      - ./app/dist:/usr/share/nginx/html:ro
+      - "${PORT:-3001}:3001"
     restart: unless-stopped

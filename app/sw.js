@@ -1,10 +1,19 @@
-const CACHE_NAME = 'plinglist-app-v1';
+const CACHE_NAME = 'plinglist-app-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './manifest.webmanifest',
   './app/src/web-app.js',
+  './app/src/store.js',
+  './app/src/i18n.js',
+  './app/src/config.js',
+  './app/src/audio.js',
+  './packages/core/src/index.js',
+  './packages/core/src/types.js',
+  './packages/core/src/hlc.js',
+  './packages/core/src/views.js',
+  './packages/core/src/importer/index.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -15,11 +24,20 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
+  );
 });
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/join/')) {
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => cached ?? fetch(event.request)),
   );

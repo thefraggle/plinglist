@@ -9,6 +9,25 @@ import {
 
 export type CloudEntitlementGuard = (userId: string) => Promise<boolean> | boolean;
 
+export type EntitlementPlan = 'free' | 'pro_yearly' | 'pro_lifetime';
+export type EntitlementSource = 'none' | 'stripe' | 'revenuecat';
+
+export interface EntitlementRecord {
+  userId: string;
+  plan: EntitlementPlan;
+  expiresAtMs: number | null;
+  source: EntitlementSource;
+}
+
+export function isEntitlementActive(record: EntitlementRecord | null, nowMs = Date.now()): boolean {
+  if (!record) return false;
+  if (record.plan === 'pro_lifetime') return true;
+  if (record.plan === 'pro_yearly') {
+    return record.expiresAtMs !== null && record.expiresAtMs > nowMs;
+  }
+  return false;
+}
+
 export interface SyncRequest {
   userId: string;
   syncKey?: string;
@@ -29,6 +48,8 @@ export interface SyncResponse {
 export interface SyncRepository {
   applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse>;
   resolveInviteToken?(inviteToken: string): Promise<TaskList | null>;
+  upsertEntitlement?(state: EntitlementRecord): void;
+  hasActiveEntitlement?(userKey: string, nowMs?: number): boolean;
 }
 
 export class EntitlementRequiredError extends Error {
@@ -47,10 +68,19 @@ export class InMemorySyncRepository implements SyncRepository {
   private readonly listsById = new Map<string, TaskList>();
   private readonly ownerByListId = new Map<string, string>();
   private readonly tasksById = new Map<string, TaskItem>();
+  private readonly entitlementsByUser = new Map<string, EntitlementRecord>();
   private readonly guard?: CloudEntitlementGuard;
 
   constructor(guard?: CloudEntitlementGuard) {
     this.guard = guard;
+  }
+
+  upsertEntitlement(state: EntitlementRecord): void {
+    this.entitlementsByUser.set(state.userId, state);
+  }
+
+  hasActiveEntitlement(userKey: string, nowMs = Date.now()): boolean {
+    return isEntitlementActive(this.entitlementsByUser.get(userKey) ?? null, nowMs);
   }
 
   private isAuthorizedForList(

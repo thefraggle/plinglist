@@ -84,3 +84,25 @@ export function getPlannedTasks(tasks: TaskItem[]): TaskItem[] {
 export function getListTasks(tasks: TaskItem[], listId: string): TaskItem[] {
   return tasks.filter((task) => isActive(task) && task.listId === listId);
 }
+
+/**
+ * Returns active uncompleted tasks whose reminder timestamp has reached nowMs
+ * and has not already been fired in the current session.
+ */
+export function getDueReminderTasks(
+  tasks: TaskItem[],
+  nowMs: number,
+  firedKeys?: ReadonlySet<string>,
+): TaskItem[] {
+  return tasks.filter((task) => {
+    if (!isActive(task) || task.completed || task.reminderAt === null) {
+      return false;
+    }
+    const key = `${task.id}:${task.reminderAt}`;
+    if (firedKeys?.has(key)) {
+      return false;
+    }
+    const dueMs = Date.parse(task.reminderAt);
+    return Number.isFinite(dueMs) && dueMs <= nowMs;
+  });
+}

@@ -11,7 +11,7 @@ import {
   type TaskItem,
   type TaskList,
 } from '../../packages/core/src/index.ts';
-import { DEFAULT_SERVER_URL, normalizeServerUrl } from './config.ts';
+import { getDefaultServerUrl, normalizeServerUrl } from './config.ts';
 import type { SupportedLocale } from './i18n.ts';
 
 export interface StorageLike {
@@ -90,7 +90,7 @@ export class PlinglistStore {
   syncKey: string = generateSyncKey();
   cursorHlc: HlcTimestamp | null = null;
   locale: SupportedLocale = 'de';
-  serverUrl: string = DEFAULT_SERVER_URL;
+  serverUrl: string = getDefaultServerUrl();
   soundEnabled = true;
 
   constructor(options?: {
@@ -166,7 +166,9 @@ export class PlinglistStore {
       this.syncKey = parsed.syncKey?.trim() || this.syncKey;
       this.cursorHlc = parsed.cursorHlc ?? null;
       this.locale = parsed.locale === 'en' ? 'en' : 'de';
-      this.serverUrl = normalizeServerUrl(parsed.serverUrl);
+      this.serverUrl = parsed.serverUrl
+        ? normalizeServerUrl(parsed.serverUrl)
+        : getDefaultServerUrl();
       this.soundEnabled = parsed.soundEnabled !== false;
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
@@ -233,6 +235,47 @@ export class PlinglistStore {
     this.lists.push(list);
     this.persist();
     return list;
+  }
+
+  renameList(listId: string, nextTitle: string): TaskList {
+    const clean = nextTitle.trim();
+    if (!clean) {
+      throw new Error('List title must not be empty');
+    }
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!list) {
+      throw new Error(`List not found: ${listId}`);
+    }
+    list.title = clean;
+    list.updatedAt = new Date().toISOString();
+    list.hlc = this.clock.now();
+    this.persist();
+    return list;
+  }
+
+  deleteList(listId: string): void {
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!list) {
+      throw new Error(`List not found: ${listId}`);
+    }
+    if (this.getActiveLists().length <= 1) {
+      throw new Error('Cannot delete the last remaining list');
+    }
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    list.deletedAt = nowIso;
+    list.updatedAt = nowIso;
+    list.hlc = hlc;
+
+    for (const task of this.tasks) {
+      if (task.listId === listId && task.deletedAt === null) {
+        task.deletedAt = nowIso;
+        task.updatedAt = nowIso;
+        task.hlc = hlc;
+        task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
+      }
+    }
+    this.persist();
   }
 
   getPairingUrl(appOrigin = 'https://plinglist.app'): string {

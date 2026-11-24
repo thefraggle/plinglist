@@ -1,4 +1,5 @@
 import {
+  getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
   getMyDayTasks,
@@ -13,6 +14,8 @@ import { t, type TranslationKey } from './i18n.ts';
 import { PlinglistStore, getLocalIsoDate } from './store.ts';
 
 let audioContext: AudioContext | null = null;
+let brandPlingBuffer: AudioBuffer | null = null;
+let brandPlingLoaded = false;
 let supportsDisplayTransition: boolean | undefined;
 
 function canTransitionDisplay(): boolean {
@@ -73,6 +76,48 @@ function wireDialogLightDismiss(dialog: HTMLDialogElement): void {
   }
 }
 
+async function ensureBrandPlingLoaded(ctx: AudioContext): Promise<AudioBuffer | null> {
+  if (brandPlingLoaded) return brandPlingBuffer;
+  brandPlingLoaded = true;
+  try {
+    const response = await fetch('./audio/pling.wav');
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!response.ok || contentType.includes('text/html')) {
+      return null;
+    }
+    const bytes = await response.arrayBuffer();
+    brandPlingBuffer = await ctx.decodeAudioData(bytes);
+    return brandPlingBuffer;
+  } catch {
+    return null;
+  }
+}
+
+function playSynthChime(ctx: AudioContext): void {
+  let startTime = ctx.currentTime;
+  for (const note of CC0_CHIME_NOTES) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(note.frequencyHz, startTime);
+    gain.gain.setValueAtTime(0.001, startTime);
+    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.durationMs / 1000);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + note.durationMs / 1000);
+    startTime += 0.055;
+  }
+}
+
+function playBufferChime(ctx: AudioContext, buffer: AudioBuffer): void {
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start();
+}
+
 function playPlingChime(): void {
   const AudioCtx =
     window.AudioContext ??
@@ -84,22 +129,25 @@ function playPlingChime(): void {
   if (audioContext.state === 'suspended') {
     void audioContext.resume();
   }
+  const ctx = audioContext;
 
-  let startTime = audioContext.currentTime;
-  for (const note of CC0_CHIME_NOTES) {
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(note.frequencyHz, startTime);
-    gain.gain.setValueAtTime(0.001, startTime);
-    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.durationMs / 1000);
-    osc.connect(gain);
-    gain.connect(audioContext.destination);
-    osc.start(startTime);
-    osc.stop(startTime + note.durationMs / 1000);
-    startTime += 0.055;
+  if (brandPlingBuffer) {
+    playBufferChime(ctx, brandPlingBuffer);
+    return;
   }
+
+  if (!brandPlingLoaded) {
+    void ensureBrandPlingLoaded(ctx).then((buffer) => {
+      if (buffer) {
+        playBufferChime(ctx, buffer);
+      } else {
+        playSynthChime(ctx);
+      }
+    });
+    return;
+  }
+
+  playSynthChime(ctx);
 }
 
 const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
@@ -204,10 +252,14 @@ function initApp(): void {
   };
 
   const shareDialog = document.getElementById('shareDialog') as HTMLDialogElement;
+  const renameListDialog = document.getElementById('renameListDialog') as HTMLDialogElement;
   const taskDialog = document.getElementById('taskDetailDialog') as HTMLDialogElement;
   const importDialog = document.getElementById('importDialog') as HTMLDialogElement;
   const settingsDialog = document.getElementById('settingsDialog') as HTMLDialogElement;
-  [shareDialog, taskDialog, importDialog, settingsDialog].forEach(wireDialogLightDismiss);
+  [shareDialog, renameListDialog, taskDialog, importDialog, settingsDialog].forEach(
+    wireDialogLightDismiss,
+  );
+  const firedReminderKeys = new Set<string>();
 
   document.querySelectorAll<HTMLButtonElement>('[data-close-dialog]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -404,6 +456,14 @@ function initApp(): void {
     const viewTitle = document.getElementById('viewTitle') as HTMLElement;
     const viewSubtitle = document.getElementById('viewSubtitle') as HTMLElement;
     const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
+    const renameListBtn = document.getElementById('renameListBtn') as HTMLButtonElement | null;
+    const deleteListBtn = document.getElementById('deleteListBtn') as HTMLButtonElement | null;
+    if (renameListBtn) {
+      renameListBtn.hidden = activeView !== 'lists';
+    }
+    if (deleteListBtn) {
+      deleteListBtn.hidden = activeView !== 'lists' || activeLists.length <= 1;
+    }
 
     let visibleTasks: TaskItem[] = [];
     suggestionsSection.hidden = activeView !== 'my-day' || suggestions.length === 0;
@@ -608,6 +668,32 @@ function initApp(): void {
     render();
   });
 
+  document.getElementById('renameListBtn')?.addEventListener('click', () => {
+    const currentList = store.getActiveLists().find((l) => l.id === activeListId);
+    if (!currentList) return;
+    (document.getElementById('renameListInput') as HTMLInputElement).value = currentList.title;
+    renameListDialog.showModal();
+  });
+
+  document.getElementById('renameListForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const input = document.getElementById('renameListInput') as HTMLInputElement;
+    if (!input.value.trim()) return;
+    store.renameList(activeListId, input.value);
+    void closeTopLayer(renameListDialog);
+    showToast(t(store.locale, 'list.renamedToast'));
+    render();
+  });
+
+  document.getElementById('deleteListBtn')?.addEventListener('click', () => {
+    if (store.getActiveLists().length <= 1) return;
+    store.deleteList(activeListId);
+    activeView = 'my-day';
+    activeListId = store.getDefaultTasksListId();
+    showToast(t(store.locale, 'list.deletedToast'));
+    render();
+  });
+
   document.getElementById('shareListBtn')?.addEventListener('click', openShareModal);
   document.getElementById('shareListSelect')?.addEventListener('change', (event) => {
     updateShareInviteUrl((event.target as HTMLSelectElement).value);
@@ -682,11 +768,15 @@ function initApp(): void {
     const recurrenceVal = (
       document.getElementById('detailRecurrenceSelect') as HTMLSelectElement
     ).value;
+    const reminderAt =
+      (document.getElementById('detailReminderInput') as HTMLInputElement).value || null;
+    if (reminderAt && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission().catch(() => undefined);
+    }
     store.updateTask(editingTaskId, {
       title: (document.getElementById('detailTitleInput') as HTMLInputElement).value,
       dueDate: (document.getElementById('detailDueDateInput') as HTMLInputElement).value || null,
-      reminderAt:
-        (document.getElementById('detailReminderInput') as HTMLInputElement).value || null,
+      reminderAt,
       recurrence: (recurrenceVal || null) as RecurrencePattern | null,
       note: (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value,
     });
@@ -774,18 +864,38 @@ function initApp(): void {
     }
   });
 
+  function checkDueReminders(): void {
+    const dueTasks = getDueReminderTasks(store.tasks, Date.now(), firedReminderKeys);
+    for (const task of dueTasks) {
+      if (task.reminderAt) {
+        firedReminderKeys.add(`${task.id}:${task.reminderAt}`);
+      }
+      if (store.soundEnabled) playPlingChime();
+      showToast(`⏰ ${t(store.locale, 'task.reminderToastPrefix')}: ${task.title}`);
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification('Plinglist', { body: task.title });
+        } catch {
+          // Ignore environments where Notification constructor is restricted
+        }
+      }
+    }
+  }
+
   window.addEventListener('online', () => {
     render();
     void runSyncNow();
   });
   window.addEventListener('offline', render);
   window.addEventListener('focus', () => {
+    checkDueReminders();
     void runSyncNow();
   });
   window.addEventListener('storage', () => {
     scheduleBackgroundSync();
   });
   window.setInterval(() => {
+    checkDueReminders();
     void runSyncNow();
   }, 15_000);
 
@@ -834,6 +944,7 @@ function initApp(): void {
   }
 
   render();
+  checkDueReminders();
   void handleJoinParamOnStartup();
 }
 

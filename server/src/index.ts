@@ -7,6 +7,7 @@ import { SqliteSyncRepository } from './sqlite-repo.ts';
 import {
   EntitlementRequiredError,
   InMemorySyncRepository,
+  type EntitlementRecord,
   type SyncRepository,
   type SyncRequest,
 } from './sync-engine.ts';
@@ -52,6 +53,67 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
 }
 
+interface StripeWebhookPayload {
+  type?: string;
+  userId?: string;
+  priceTier?: 'yearly' | 'lifetime';
+  periodEndMs?: number | null;
+}
+
+interface RevenueCatWebhookPayload {
+  type?: string;
+  appUserId?: string;
+  productId?: string;
+  expirationAtMs?: number | null;
+}
+
+function normalizeWebhookPayload(
+  provider: 'stripe' | 'revenuecat',
+  raw: StripeWebhookPayload | RevenueCatWebhookPayload,
+): EntitlementRecord {
+  if (provider === 'stripe') {
+    const event = raw as StripeWebhookPayload;
+    const userId = event.userId?.trim();
+    if (!userId) {
+      throw new Error('Missing userId in Stripe webhook');
+    }
+    if (event.type === 'customer.subscription.deleted') {
+      return { userId, plan: 'free', expiresAtMs: null, source: 'stripe' };
+    }
+    if (event.type === 'checkout.session.completed') {
+      if (event.priceTier === 'lifetime') {
+        return { userId, plan: 'pro_lifetime', expiresAtMs: null, source: 'stripe' };
+      }
+      return {
+        userId,
+        plan: 'pro_yearly',
+        expiresAtMs: event.periodEndMs ?? null,
+        source: 'stripe',
+      };
+    }
+    throw new Error(`Unsupported Stripe event type: ${event.type ?? 'unknown'}`);
+  }
+
+  const event = raw as RevenueCatWebhookPayload;
+  const userId = event.appUserId?.trim();
+  if (!userId) {
+    throw new Error('Missing appUserId in RevenueCat webhook');
+  }
+  if (event.type === 'EXPIRATION') {
+    return { userId, plan: 'free', expiresAtMs: null, source: 'revenuecat' };
+  }
+  if (event.type === 'INITIAL_PURCHASE' || event.type === 'RENEWAL') {
+    const isLifetime = (event.productId ?? '').toLowerCase().includes('lifetime');
+    return {
+      userId,
+      plan: isLifetime ? 'pro_lifetime' : 'pro_yearly',
+      expiresAtMs: isLifetime ? null : (event.expirationAtMs ?? null),
+      source: 'revenuecat',
+    };
+  }
+  throw new Error(`Unsupported RevenueCat event type: ${event.type ?? 'unknown'}`);
+}
+
 export function createServerApp(
   config: ServerConfig = loadServerConfig(),
   repo: SyncRepository = new InMemorySyncRepository(),
@@ -90,6 +152,30 @@ export function createServerApp(
         sendJson(res, 400, {
           error: 'INVALID_SYNC_REQUEST',
           message: err instanceof Error ? err.message : 'Bad request',
+        });
+      }
+      return;
+    }
+
+    const webhookMatch = pathname.match(/^\/api\/v1\/cloud\/webhooks\/(stripe|revenuecat)$/);
+    if (config.cloudExtensionEnabled && method === 'POST' && webhookMatch) {
+      if (
+        config.cloudWebhookSecret &&
+        req.headers.authorization !== `Bearer ${config.cloudWebhookSecret}`
+      ) {
+        sendJson(res, 401, { error: 'UNAUTHORIZED_WEBHOOK' });
+        return;
+      }
+      try {
+        const provider = webhookMatch[1] as 'stripe' | 'revenuecat';
+        const body = await readJsonBody<StripeWebhookPayload | RevenueCatWebhookPayload>(req);
+        const entitlement = normalizeWebhookPayload(provider, body);
+        repo.upsertEntitlement?.(entitlement);
+        sendJson(res, 200, { ok: true, entitlement });
+      } catch (err) {
+        sendJson(res, 400, {
+          error: 'INVALID_WEBHOOK_PAYLOAD',
+          message: err instanceof Error ? err.message : 'Invalid webhook payload',
         });
       }
       return;
@@ -149,7 +235,13 @@ export function createServerApp(
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const config = loadServerConfig();
-  const repo = new SqliteSyncRepository(config.sqlitePath);
+  let repo!: SqliteSyncRepository;
+  repo = new SqliteSyncRepository(
+    config.sqlitePath,
+    config.cloudExtensionEnabled && config.cloudEnforceEntitlements
+      ? (callerKey) => repo.hasActiveEntitlement(callerKey)
+      : undefined,
+  );
   const server = createServerApp(config, repo);
   server.listen(config.port, '0.0.0.0', () => {
     console.log(

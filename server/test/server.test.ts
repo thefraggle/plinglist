@@ -306,3 +306,97 @@ test('zero-auth capability isolation blocks cross-workspace access while allowin
     repo.close();
   }
 });
+
+test('cloud webhook activates Stripe/RevenueCat entitlement in SQLite and unblocks enforced sync', async () => {
+  let repo!: SqliteSyncRepository;
+  repo = new SqliteSyncRepository(':memory:', (callerKey) => repo.hasActiveEntitlement(callerKey));
+  const server = createServerApp(
+    loadServerConfig({
+      PORT: '0',
+      CLOUD_EXTENSION_ENABLED: 'true',
+      CLOUD_ENFORCE_ENTITLEMENTS: 'true',
+      CLOUD_WEBHOOK_SECRET: 'sec-123',
+    }),
+    repo,
+  );
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const h1 = formatHlc(8000, 0, 'pro-dev');
+
+    const blockedRes = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'u-pro',
+        syncKey: 'pling-pro-key-4444',
+        listIds: ['list-shared'],
+        clientTasks: [makeTask('t-pro', h1)],
+      }),
+    });
+    assert.equal(blockedRes.status, 403);
+    const blockedBody = (await blockedRes.json()) as { error: string };
+    assert.equal(blockedBody.error, 'PRO_ENTITLEMENT_REQUIRED');
+
+    const unauthorizedHook = await fetch(`${baseUrl}/api/v1/cloud/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong-secret' },
+      body: JSON.stringify({
+        type: 'checkout.session.completed',
+        userId: 'pling-pro-key-4444',
+        priceTier: 'lifetime',
+      }),
+    });
+    assert.equal(unauthorizedHook.status, 401);
+
+    const webhookRes = await fetch(`${baseUrl}/api/v1/cloud/webhooks/stripe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer sec-123' },
+      body: JSON.stringify({
+        type: 'checkout.session.completed',
+        userId: 'pling-pro-key-4444',
+        priceTier: 'lifetime',
+      }),
+    });
+    assert.equal(webhookRes.status, 200);
+    const webhookBody = (await webhookRes.json()) as {
+      ok: boolean;
+      entitlement: { plan: string; userId: string };
+    };
+    assert.equal(webhookBody.ok, true);
+    assert.equal(webhookBody.entitlement.plan, 'pro_lifetime');
+
+    const allowedRes = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'u-pro',
+        syncKey: 'pling-pro-key-4444',
+        listIds: ['list-shared'],
+        clientTasks: [makeTask('t-pro', h1)],
+      }),
+    });
+    assert.equal(allowedRes.status, 200);
+    const allowedBody = (await allowedRes.json()) as { acceptedCount: number };
+    assert.equal(allowedBody.acceptedCount, 1);
+
+    const rcRes = await fetch(`${baseUrl}/api/v1/cloud/webhooks/revenuecat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer sec-123' },
+      body: JSON.stringify({
+        type: 'EXPIRATION',
+        appUserId: 'pling-pro-key-4444',
+        productId: 'plinglist_pro_yearly',
+      }),
+    });
+    assert.equal(rcRes.status, 200);
+    assert.equal(repo.hasActiveEntitlement('pling-pro-key-4444'), false);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

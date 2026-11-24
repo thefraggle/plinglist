@@ -5,6 +5,7 @@ import {
   compareHlc,
   computeNextDueDate,
   formatHlc,
+  getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
   getMyDayTasks,
@@ -235,4 +236,36 @@ test('importMicrosoftToDoCsv parses EN comma and DE semicolon CSV exports cleanl
   assert.equal(deRes.tasks[0].starred, true);
   assert.equal(deRes.tasks[0].dueDate, '2027-05-15');
   assert.equal(deRes.tasks[0].note, 'Elster prüfen');
+});
+
+test('getDueReminderTasks filters active uncompleted due reminders and respects firedKeys', () => {
+  const nowMs = Date.parse('2026-11-24T10:30:00.000Z');
+  const dueTask = makeTask({
+    id: 't-due',
+    reminderAt: '2026-11-24T10:25:00.000Z',
+  });
+  const futureTask = makeTask({
+    id: 't-future',
+    reminderAt: '2026-11-24T11:00:00.000Z',
+  });
+  const completedTask = makeTask({
+    id: 't-done',
+    completed: true,
+    reminderAt: '2026-11-24T09:00:00.000Z',
+  });
+  const deletedTask = makeTask({
+    id: 't-deleted',
+    deletedAt: '2026-11-24T09:05:00.000Z',
+    reminderAt: '2026-11-24T09:00:00.000Z',
+  });
+
+  const tasks = [dueTask, futureTask, completedTask, deletedTask];
+  const due = getDueReminderTasks(tasks, nowMs);
+  assert.deepEqual(
+    due.map((t) => t.id),
+    ['t-due'],
+  );
+
+  const firedKeys = new Set([`${dueTask.id}:${dueTask.reminderAt}`]);
+  assert.deepEqual(getDueReminderTasks(tasks, nowMs, firedKeys), []);
 });

@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SERVER_URL, normalizeServerUrl } from '../src/config.ts';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  DEFAULT_SERVER_URL,
+  getDefaultServerUrl,
+  normalizeServerUrl,
+} from '../src/config.ts';
 import { TRANSLATIONS, t } from '../src/i18n.ts';
 import { resolveCompletionSoundSource } from '../src/audio.ts';
 import { PlinglistStore, type StorageLike } from '../src/store.ts';
@@ -37,6 +44,13 @@ test('normalizeServerUrl defaults to official API and validates self-hosted URLs
   );
   assert.throws(() => normalizeServerUrl('ftp://invalid.example.com'));
   assert.throws(() => normalizeServerUrl('not-a-url'));
+});
+
+test('getDefaultServerUrl resolves same-origin HTTP(S) URLs and falls back for non-web origins', () => {
+  assert.equal(getDefaultServerUrl('https://plinglist.app/'), 'https://plinglist.app');
+  assert.equal(getDefaultServerUrl('http://localhost:3001'), 'http://localhost:3001');
+  assert.equal(getDefaultServerUrl('capacitor://localhost'), DEFAULT_SERVER_URL);
+  assert.equal(getDefaultServerUrl(undefined), DEFAULT_SERVER_URL);
 });
 
 test('public audio defaults to CC0 synth unless brand overlay is applied', () => {
@@ -218,4 +232,58 @@ test('store generates direct app invite URLs (?join=) and self-pairing URLs (?pa
     store.getPairingUrl('https://plinglist.app/'),
     'https://plinglist.app/?pair=pling-test-pair-9999',
   );
+});
+
+test('build-app produces every asset precached in sw.js', () => {
+  const rootDir = path.resolve(import.meta.dirname, '..', '..');
+  const buildScript = path.join(rootDir, 'scripts', 'build-app.mjs');
+  execFileSync(process.execPath, [buildScript], { cwd: rootDir, stdio: 'pipe' });
+
+  const swSource = fs.readFileSync(path.join(rootDir, 'app', 'sw.js'), 'utf8');
+  const assetsMatch = swSource.match(/const ASSETS\s*=\s*\[([\s\S]*?)\];/);
+  assert.ok(assetsMatch, 'Expected ASSETS array in app/sw.js');
+
+  const assetEntries = Array.from(assetsMatch[1].matchAll(/['"]([^'"]+)['"]/g), (m) => m[1]);
+  assert.ok(assetEntries.includes('./app/src/store.js'), 'sw.js must precache store.js');
+  assert.ok(
+    assetEntries.includes('./packages/core/src/index.js'),
+    'sw.js must precache core index.js',
+  );
+
+  const distDir = path.join(rootDir, 'app', 'dist');
+  for (const entry of assetEntries) {
+    if (entry === './') continue;
+    const relPath = entry.replace(/^\.\//, '');
+    const absPath = path.join(distDir, relPath);
+    assert.ok(fs.existsSync(absPath), `Missing built asset for sw.js precache: ${relPath}`);
+  }
+});
+
+test('PlinglistStore renames and soft-deletes custom lists while protecting the last remaining list', () => {
+  const storage = createMemoryStorage();
+  const store = new PlinglistStore({ storage, locale: 'de' });
+  const initialLists = store.getActiveLists();
+  assert.equal(initialLists.length, 2);
+
+  const custom = store.addList('Projekt X');
+  const taskInCustom = store.addTask({ title: 'Spec lesen', listId: custom.id });
+
+  const renamed = store.renameList(custom.id, '  Projekt Y  ');
+  assert.equal(renamed.title, 'Projekt Y');
+  assert.throws(() => store.renameList(custom.id, '   '));
+
+  store.deleteList(custom.id);
+  assert.equal(
+    store.getActiveLists().some((l) => l.id === custom.id),
+    false,
+  );
+  const deletedList = store.lists.find((l) => l.id === custom.id);
+  assert.ok(deletedList?.deletedAt);
+  const deletedTask = store.tasks.find((t) => t.id === taskInCustom.id);
+  assert.ok(deletedTask?.deletedAt);
+
+  // Delete one of the two seeded lists, then ensure deleting the last remaining list throws
+  store.deleteList(store.getActiveLists()[1].id);
+  assert.equal(store.getActiveLists().length, 1);
+  assert.throws(() => store.deleteList(store.getActiveLists()[0].id));
 });

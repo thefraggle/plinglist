@@ -11,7 +11,11 @@ import {
 } from '../../packages/core/src/index.ts';
 import {
   EntitlementRequiredError,
+  isEntitlementActive,
   type CloudEntitlementGuard,
+  type EntitlementPlan,
+  type EntitlementRecord,
+  type EntitlementSource,
   type SyncRepository,
   type SyncRequest,
   type SyncResponse,
@@ -55,6 +59,14 @@ export class SqliteSyncRepository implements SyncRepository {
         payload_json TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_tasks_list_hlc ON tasks(list_id, hlc);
+
+      CREATE TABLE IF NOT EXISTS entitlements (
+        user_key TEXT PRIMARY KEY,
+        plan TEXT NOT NULL,
+        expires_at_ms INTEGER,
+        source TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     try {
@@ -261,6 +273,58 @@ export class SqliteSyncRepository implements SyncRepository {
       return null;
     }
     return list;
+  }
+
+  upsertEntitlement(state: EntitlementRecord): void {
+    const cleanKey = state.userId.trim();
+    if (!cleanKey) {
+      throw new Error('Entitlement userId must not be empty');
+    }
+    this.db
+      .prepare(
+        `
+        INSERT INTO entitlements (user_key, plan, expires_at_ms, source, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_key) DO UPDATE SET
+          plan = excluded.plan,
+          expires_at_ms = excluded.expires_at_ms,
+          source = excluded.source,
+          updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        cleanKey,
+        state.plan,
+        state.expiresAtMs ?? null,
+        state.source,
+        new Date().toISOString(),
+      );
+  }
+
+  getEntitlement(userKey: string): EntitlementRecord | null {
+    const cleanKey = userKey.trim();
+    if (!cleanKey) return null;
+    const row = this.db
+      .prepare('SELECT user_key, plan, expires_at_ms, source FROM entitlements WHERE user_key = ?')
+      .get(cleanKey) as
+      | {
+          user_key: string;
+          plan: EntitlementPlan;
+          expires_at_ms: number | null;
+          source: EntitlementSource;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      userId: row.user_key,
+      plan: row.plan,
+      expiresAtMs: row.expires_at_ms,
+      source: row.source,
+    };
+  }
+
+  hasActiveEntitlement(userKey: string, nowMs = Date.now()): boolean {
+    return isEntitlementActive(this.getEntitlement(userKey), nowMs);
   }
 
   close(): void {

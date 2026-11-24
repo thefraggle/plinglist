@@ -44,6 +44,20 @@ function copyStaticFile(relSrc, relDest) {
   fs.copyFileSync(src, dest);
 }
 
+function copyDirectoryRecursive(srcAbs, destAbs) {
+  if (!fs.existsSync(srcAbs)) return;
+  ensureDir(destAbs);
+  for (const entry of fs.readdirSync(srcAbs, { withFileTypes: true })) {
+    const entrySrc = path.join(srcAbs, entry.name);
+    const entryDest = path.join(destAbs, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(entrySrc, entryDest);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(entrySrc, entryDest);
+    }
+  }
+}
+
 fs.rmSync(DIST_DIR, { recursive: true, force: true });
 ensureDir(DIST_DIR);
 
@@ -54,5 +68,6 @@ copyStaticFile('app/index.html', 'index.html');
 copyStaticFile('app/styles.css', 'styles.css');
 copyStaticFile('app/manifest.webmanifest', 'manifest.webmanifest');
 copyStaticFile('app/sw.js', 'sw.js');
+copyDirectoryRecursive(path.join(ROOT, 'app', 'public'), DIST_DIR);
 
 console.log(`Built Plinglist web app into ${DIST_DIR}`);
