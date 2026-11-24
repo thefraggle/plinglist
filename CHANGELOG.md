@@ -2,6 +2,15 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.10] - 2026-11-24
+
+### Changed
+- **Compact Tabbed Settings Modal (`app/index.html`, `app/styles.css`, `app/src/web-app.ts`):** Reorganized `#settingsDialog` into 3 compact no-scroll tabs (*General / Allgemein*, *Lists / Listen*, *Sync & Import*) with tighter checkbox spacing and smart error tab switching. Service Worker bumped to `plinglist-app-v8`.
+- **50% Chime Volume (`app/src/audio.ts`, `app/src/web-app.ts`, `cloud/assets/audio/pling.wav`):** Lowered completion chime volume (`CHIME_MASTER_GAIN = 0.5`, halved `CC0_CHIME_NOTES` gains, and regenerated `pling.wav` at 50% amplitude) for a gentler feedback tone.
+
+### Fixed
+- **Legacy `api.plinglist.app` Server URL Migration (`app/src/store.ts`):** Automatically upgrades stored `https://api.plinglist.app` URLs to same-origin (`window.location.origin`) when running in a web browser context.
+
 ## [0.1.9] - 2026-11-24
 
 ### Added

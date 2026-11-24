@@ -11,7 +11,7 @@ import {
   type TaskItem,
   type TaskList,
 } from '../../packages/core/src/index.ts';
-import { getDefaultServerUrl, normalizeServerUrl } from './config.ts';
+import { DEFAULT_SERVER_URL, getDefaultServerUrl, normalizeServerUrl } from './config.ts';
 import type { SupportedLocale } from './i18n.ts';
 
 export interface StorageLike {
@@ -267,9 +267,15 @@ export class PlinglistStore {
       this.syncKey = parsed.syncKey?.trim() || this.syncKey;
       this.cursorHlc = parsed.cursorHlc ?? null;
       this.locale = parsed.locale === 'en' ? 'en' : 'de';
-      this.serverUrl = parsed.serverUrl
+      const loadedServerUrl = parsed.serverUrl
         ? normalizeServerUrl(parsed.serverUrl)
         : getDefaultServerUrl();
+      const webOrigin =
+        typeof globalThis.window !== 'undefined' ? globalThis.window.location?.origin : undefined;
+      const migratedLegacyApiUrl =
+        loadedServerUrl === DEFAULT_SERVER_URL &&
+        Boolean(webOrigin && (webOrigin.startsWith('http://') || webOrigin.startsWith('https://')));
+      this.serverUrl = migratedLegacyApiUrl ? getDefaultServerUrl() : loadedServerUrl;
       this.soundEnabled = parsed.soundEnabled !== false;
       this.preferences = { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) };
       this.lists = parsed.lists;
@@ -280,7 +286,8 @@ export class PlinglistStore {
       for (const task of this.tasks) {
         this.clock.receive(task.hlc);
       }
-      if (this.consolidateWorkspaceLists()) {
+      const consolidated = this.consolidateWorkspaceLists();
+      if (consolidated || migratedLegacyApiUrl) {
         this.persist(true);
       }
       return this.lists.length > 0;

@@ -428,79 +428,121 @@
         </div>
 
         <form id="settingsForm" class="dialog-body">
-          <div class="field-group">
-            <label for="settingsLocaleSelect" data-i18n="settings.language">Sprache</label>
-            <select id="settingsLocaleSelect">
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
-            </select>
+          <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button
+              type="button"
+              class="settings-tab"
+              role="tab"
+              data-settings-tab="general"
+              aria-selected="true"
+              data-i18n="settings.tabGeneral"
+            >
+              Allgemein
+            </button>
+            <button
+              type="button"
+              class="settings-tab"
+              role="tab"
+              data-settings-tab="lists"
+              aria-selected="false"
+              data-i18n="settings.tabLists"
+            >
+              Listen
+            </button>
+            <button
+              type="button"
+              class="settings-tab"
+              role="tab"
+              data-settings-tab="sync"
+              aria-selected="false"
+              data-i18n="settings.tabSync"
+            >
+              Sync &amp; Import
+            </button>
           </div>
 
-          <div class="field-group">
-            <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
-            <div class="copy-row">
-              <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
-              <button type="button" id="copySettingsPairUrlBtn" class="btn-secondary btn-compact" data-i18n="share.copyPairBtn">
-                Koppellink kopieren
+          <section class="settings-panel" data-settings-panel="general">
+            <div class="field-group">
+              <label for="settingsLocaleSelect" data-i18n="settings.language">Sprache</label>
+              <select id="settingsLocaleSelect">
+                <option value="de">Deutsch</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+
+            <div class="checkbox-group">
+              <label class="checkbox-row">
+                <input id="settingsSoundCheckbox" type="checkbox" />
+                <span data-i18n="settings.soundEnabled"></span>
+              </label>
+              <label class="checkbox-row">
+                <input id="settingsAddNewOnTopCheckbox" type="checkbox" />
+                <span data-i18n="settings.addNewOnTop"></span>
+              </label>
+              <label class="checkbox-row">
+                <input id="settingsMoveStarredToTopCheckbox" type="checkbox" />
+                <span data-i18n="settings.moveStarredToTop"></span>
+              </label>
+              <label class="checkbox-row">
+                <input id="settingsConfirmDeleteCheckbox" type="checkbox" />
+                <span data-i18n="settings.confirmBeforeDelete"></span>
+              </label>
+            </div>
+
+            <p class="field-hint" data-i18n="settings.aboutFooter"></p>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="lists" hidden>
+            <div class="checkbox-group">
+              <label class="checkbox-row">
+                <input id="settingsAutoDueTodayCheckbox" type="checkbox" />
+                <span data-i18n="settings.autoAddDueToday"></span>
+              </label>
+              <label class="checkbox-row">
+                <input id="settingsAutoHideEmptyCheckbox" type="checkbox" />
+                <span data-i18n="settings.autoHideEmptySmart"></span>
+              </label>
+              <label class="checkbox-row">
+                <input id="settingsShowAllListCheckbox" type="checkbox" />
+                <span data-i18n="settings.showAllSmartList"></span>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="sync" hidden>
+            <div class="field-group">
+              <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
+              <div class="copy-row">
+                <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
+                <button type="button" id="copySettingsPairUrlBtn" class="btn-secondary btn-compact" data-i18n="share.copyPairBtn">
+                  Koppellink kopieren
+                </button>
+              </div>
+              <small class="field-hint" data-i18n="settings.syncKeyHint"></small>
+            </div>
+
+            <div class="sync-row">
+              <span id="settingsSyncStatusText" class="field-hint"></span>
+              <button type="button" id="manualSyncBtn" class="btn-secondary btn-compact" data-i18n="settings.syncNowBtn">
+                Jetzt synchronisieren
               </button>
             </div>
-            <small class="field-hint" data-i18n="settings.syncKeyHint"></small>
-          </div>
 
-          <div class="field-group">
-            <label for="settingsServerUrlInput" data-i18n="settings.serverUrl">Server-URL</label>
-            <input id="settingsServerUrlInput" type="url" autocomplete="url" required />
-            <small class="field-hint" data-i18n="settings.serverUrlHint"></small>
-          </div>
+            <div class="sidebar-divider"></div>
 
-          <label class="checkbox-row">
-            <input id="settingsSoundCheckbox" type="checkbox" />
-            <span data-i18n="settings.soundEnabled"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsAddNewOnTopCheckbox" type="checkbox" />
-            <span data-i18n="settings.addNewOnTop"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsMoveStarredToTopCheckbox" type="checkbox" />
-            <span data-i18n="settings.moveStarredToTop"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsConfirmDeleteCheckbox" type="checkbox" />
-            <span data-i18n="settings.confirmBeforeDelete"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsAutoDueTodayCheckbox" type="checkbox" />
-            <span data-i18n="settings.autoAddDueToday"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsAutoHideEmptyCheckbox" type="checkbox" />
-            <span data-i18n="settings.autoHideEmptySmart"></span>
-          </label>
-          <label class="checkbox-row">
-            <input id="settingsShowAllListCheckbox" type="checkbox" />
-            <span data-i18n="settings.showAllSmartList"></span>
-          </label>
+            <div class="sync-row">
+              <span class="field-label" data-i18n="importer.title">Aus Wunderlist oder Microsoft To Do importieren</span>
+              <button type="button" id="openImportBtn" class="btn-secondary btn-compact" data-i18n="nav.import">
+                Import
+              </button>
+            </div>
 
-          <div class="sidebar-divider"></div>
-
-          <div class="sync-row">
-            <span id="settingsSyncStatusText" class="field-hint"></span>
-            <button type="button" id="manualSyncBtn" class="btn-secondary btn-compact" data-i18n="settings.syncNowBtn">
-              Jetzt synchronisieren
-            </button>
-          </div>
-
-          <div class="sidebar-divider"></div>
-
-          <div class="field-group">
-            <span class="field-label" data-i18n="importer.title">Aus Wunderlist oder Microsoft To Do importieren</span>
-            <button type="button" id="openImportBtn" class="btn-secondary btn-compact" data-i18n="nav.import">
-              Import
-            </button>
-          </div>
-
-          <p class="field-hint" data-i18n="settings.aboutFooter"></p>
+            <div class="field-group">
+              <label for="settingsServerUrlInput" data-i18n="settings.serverUrl">Server-URL</label>
+              <input id="settingsServerUrlInput" type="url" autocomplete="url" required />
+              <small class="field-hint" data-i18n="settings.serverUrlHint"></small>
+            </div>
+          </section>
 
           <p id="settingsErrorText" class="error-text" hidden></p>
 

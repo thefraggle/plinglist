@@ -11,7 +11,7 @@ import {
   type SmartViewId,
   type TaskItem,
 } from '../../packages/core/src/index.ts';
-import { CC0_CHIME_NOTES } from './audio.ts';
+import { CC0_CHIME_NOTES, CHIME_MASTER_GAIN } from './audio.ts';
 import { t, type TranslationKey } from './i18n.ts';
 import { PlinglistStore, getLocalIsoDate } from './store.ts';
 
@@ -126,8 +126,11 @@ function playSynthChime(ctx: AudioContext): void {
 
 function playBufferChime(ctx: AudioContext, buffer: AudioBuffer): void {
   const source = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(CHIME_MASTER_GAIN, ctx.currentTime);
   source.buffer = buffer;
-  source.connect(ctx.destination);
+  source.connect(gain);
+  gain.connect(ctx.destination);
   source.start();
 }
 
@@ -975,8 +978,25 @@ function initApp(): void {
     }
   });
 
+  function selectSettingsTab(tabName: 'general' | 'lists' | 'sync'): void {
+    document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((tab) => {
+      tab.setAttribute('aria-selected', String(tab.dataset.settingsTab === tabName));
+    });
+    document.querySelectorAll<HTMLElement>('[data-settings-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.settingsPanel !== tabName;
+    });
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.settingsTab as 'general' | 'lists' | 'sync' | undefined;
+      if (target) selectSettingsTab(target);
+    });
+  });
+
   document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
     closeMobileDrawer();
+    selectSettingsTab('general');
     (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
     (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value = store.syncKey;
     (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
@@ -1043,6 +1063,7 @@ function initApp(): void {
     try {
       store.setSyncKey(nextSyncKey);
     } catch {
+      selectSettingsTab('sync');
       errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
       errEl.hidden = false;
       return;
@@ -1059,6 +1080,7 @@ function initApp(): void {
       render();
       void runSyncNow();
     } catch {
+      selectSettingsTab('sync');
       errEl.textContent = t(store.locale, 'settings.serverUrlInvalid');
       errEl.hidden = false;
     }

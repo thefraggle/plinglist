@@ -9,7 +9,7 @@ import {
   normalizeServerUrl,
 } from '../src/config.ts';
 import { TRANSLATIONS, t } from '../src/i18n.ts';
-import { resolveCompletionSoundSource } from '../src/audio.ts';
+import { CHIME_MASTER_GAIN, resolveCompletionSoundSource } from '../src/audio.ts';
 import { PlinglistStore, type StorageLike } from '../src/store.ts';
 
 function createMemoryStorage(): StorageLike {
@@ -54,6 +54,7 @@ test('getDefaultServerUrl resolves same-origin HTTP(S) URLs and falls back for n
 });
 
 test('public audio defaults to CC0 synth unless brand overlay is applied', () => {
+  assert.equal(CHIME_MASTER_GAIN, 0.5);
   assert.equal(resolveCompletionSoundSource(false), 'cc0-synth');
   assert.equal(resolveCompletionSoundSource(true), 'brand-overlay');
 });
@@ -491,4 +492,52 @@ test('PlinglistStore persists preferences, controls addTask insertion order, and
   assert.equal(reloaded.preferences.addNewTasksOnTop, false);
   assert.equal(reloaded.preferences.showAllSmartList, true);
   assert.equal(reloaded.preferences.moveStarredToTop, true);
+});
+
+test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-origin in web context', () => {
+  const storage = createMemoryStorage();
+  storage.setItem(
+    'plinglist.local.v1',
+    JSON.stringify({
+      version: 1,
+      locale: 'de',
+      serverUrl: DEFAULT_SERVER_URL,
+      soundEnabled: true,
+      lists: [
+        {
+          id: 'list-tasks-abc',
+          title: 'Aufgaben',
+          shared: false,
+          inviteToken: null,
+          createdAt: '2026-11-23T08:00:00Z',
+          updatedAt: '2026-11-23T08:00:00Z',
+          deletedAt: null,
+          hlc: '001795450000000:00000:web-local',
+        },
+      ],
+      tasks: [],
+    }),
+  );
+
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  (globalThis as { window?: { location?: { origin?: string } } }).window = {
+    location: { origin: 'https://plinglist.app' },
+  };
+  try {
+    const store = new PlinglistStore({ storage });
+    assert.equal(store.serverUrl, 'https://plinglist.app');
+  } finally {
+    if (prevWindow === undefined) {
+      delete (globalThis as { window?: unknown }).window;
+    } else {
+      (globalThis as { window?: unknown }).window = prevWindow;
+    }
+  }
+
+  const rootDir = path.resolve(import.meta.dirname, '..', '..');
+  const html = fs.readFileSync(path.join(rootDir, 'app', 'index.html'), 'utf8');
+  assert.match(html, /data-settings-tab="general"/);
+  assert.match(html, /data-settings-tab="lists"/);
+  assert.match(html, /data-settings-tab="sync"/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.10/);
 });
