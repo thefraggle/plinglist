@@ -266,9 +266,11 @@ test('PlinglistStore renames and soft-deletes custom lists while protecting the 
   assert.equal(initialLists.length, 2);
 
   const defaultTasksId = store.getDefaultTasksListId();
+  assert.equal(store.isSystemTasksList('list-tasks'), true);
   assert.equal(store.isSystemTasksList(defaultTasksId), true);
   assert.throws(() => store.renameList(defaultTasksId, 'Andere Inbox'));
   assert.throws(() => store.deleteList(defaultTasksId));
+  assert.throws(() => store.shareList(defaultTasksId));
 
   const custom = store.addList('Projekt X');
   assert.equal(store.isSystemTasksList(custom.id), false);
@@ -319,6 +321,9 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
     assert.equal((await store.syncWithServer()).synced, true);
     assert.ok(await repo.resolveInviteToken(token));
 
+    // Actively shared list cannot be deleted until unshared
+    assert.throws(() => store.deleteList(list.id));
+
     const unshared = store.unshareList(list.id);
     assert.equal(unshared.shared, false);
     assert.equal(unshared.inviteToken, null);
@@ -326,6 +331,12 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
 
     assert.equal((await store.syncWithServer()).synced, true);
     assert.equal(await repo.resolveInviteToken(token), null);
+
+    store.deleteList(list.id);
+    assert.equal(
+      store.getActiveLists().some((item) => item.id === list.id),
+      false,
+    );
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

@@ -151,12 +151,27 @@ export class PlinglistStore {
 
   getDefaultTasksListId(): string {
     const active = this.getActiveLists();
-    const systemList = active.find((list) => list.id.startsWith('list-tasks-'));
+    const systemList = active.find(
+      (list) => list.id === 'list-tasks' || list.id.startsWith('list-tasks-'),
+    );
     return systemList?.id ?? active[0]?.id ?? `list-tasks-${deriveWorkspaceSuffix(this.syncKey)}`;
   }
 
   isSystemTasksList(listId: string): boolean {
-    return listId.startsWith('list-tasks-') || listId === this.getDefaultTasksListId();
+    return (
+      listId === 'list-tasks' ||
+      listId.startsWith('list-tasks-') ||
+      listId === this.getDefaultTasksListId()
+    );
+  }
+
+  private sanitizeSystemLists(): void {
+    for (const list of this.lists) {
+      if (this.isSystemTasksList(list.id) && (list.shared || list.inviteToken !== null)) {
+        list.shared = false;
+        list.inviteToken = null;
+      }
+    }
   }
 
   private load(): boolean {
@@ -178,6 +193,7 @@ export class PlinglistStore {
       this.soundEnabled = parsed.soundEnabled !== false;
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
+      this.sanitizeSystemLists();
       for (const list of this.lists) {
         this.clock.receive(list.hlc);
       }
@@ -273,6 +289,9 @@ export class PlinglistStore {
     if (this.getActiveLists().length <= 1) {
       throw new Error('Cannot delete the last remaining list');
     }
+    if (list.shared) {
+      throw new Error('Cannot delete an actively shared list');
+    }
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
     list.deletedAt = nowIso;
@@ -306,6 +325,9 @@ export class PlinglistStore {
   }
 
   shareList(listId: string, appOrigin?: string): { list: TaskList; inviteUrl: string } {
+    if (this.isSystemTasksList(listId)) {
+      throw new Error('Cannot share the default tasks list');
+    }
     const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
     if (!list) {
       throw new Error(`List not found: ${listId}`);
@@ -649,6 +671,7 @@ export class PlinglistStore {
         pulledLists += 1;
       }
     }
+    this.sanitizeSystemLists();
 
     for (const incomingTask of response.serverTasks) {
       this.clock.receive(incomingTask.hlc);

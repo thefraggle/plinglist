@@ -126,7 +126,7 @@
                 <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
               </svg>
             </button>
-            <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share">
+            <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share" hidden>
               Teilen
             </button>
           </div>
@@ -424,7 +424,12 @@
 
           <div class="field-group">
             <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
-            <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
+            <div class="copy-row">
+              <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
+              <button type="button" id="copySettingsPairUrlBtn" class="btn-secondary btn-compact" data-i18n="share.copyPairBtn">
+                Koppellink kopieren
+              </button>
+            </div>
             <small class="field-hint" data-i18n="settings.syncKeyHint"></small>
           </div>
 

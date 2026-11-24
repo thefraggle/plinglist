@@ -458,14 +458,20 @@ function initApp(): void {
     const viewTitle = document.getElementById('viewTitle') as HTMLElement;
     const viewSubtitle = document.getElementById('viewSubtitle') as HTMLElement;
     const suggestionsSection = document.getElementById('suggestionsSection') as HTMLElement;
+    const currentList =
+      activeView === 'lists' ? activeLists.find((l) => l.id === activeListId) : undefined;
+    const isCustomList = Boolean(currentList && !store.isSystemTasksList(currentList.id));
     const renameListBtn = document.getElementById('renameListBtn') as HTMLButtonElement | null;
     const deleteListBtn = document.getElementById('deleteListBtn') as HTMLButtonElement | null;
-    const isCustomEditableList = activeView === 'lists' && !store.isSystemTasksList(activeListId);
+    const shareListBtn = document.getElementById('shareListBtn') as HTMLButtonElement | null;
     if (renameListBtn) {
-      renameListBtn.hidden = !isCustomEditableList;
+      renameListBtn.hidden = !isCustomList;
+    }
+    if (shareListBtn) {
+      shareListBtn.hidden = !isCustomList;
     }
     if (deleteListBtn) {
-      deleteListBtn.hidden = !isCustomEditableList;
+      deleteListBtn.hidden = !isCustomList || Boolean(currentList?.shared);
     }
 
     let visibleTasks: TaskItem[] = [];
@@ -528,10 +534,12 @@ function initApp(): void {
   }
 
   function openShareModal(): void {
-    const activeLists = store.getActiveLists();
+    const shareableLists = store
+      .getActiveLists()
+      .filter((list) => !store.isSystemTasksList(list.id));
     const selectEl = document.getElementById('shareListSelect') as HTMLSelectElement;
     selectEl.replaceChildren();
-    for (const list of activeLists) {
+    for (const list of shareableLists) {
       const opt = document.createElement('option');
       opt.value = list.id;
       opt.textContent = list.title;
@@ -539,12 +547,16 @@ function initApp(): void {
     }
 
     const initialListId =
-      activeView === 'lists' && activeLists.some((l) => l.id === activeListId)
+      activeView === 'lists' && shareableLists.some((l) => l.id === activeListId)
         ? activeListId
-        : (activeLists[0]?.id ?? store.getDefaultTasksListId());
-    selectEl.value = initialListId;
-
-    refreshShareDialogState(initialListId);
+        : (shareableLists[0]?.id ?? '');
+    if (initialListId) {
+      selectEl.value = initialListId;
+      refreshShareDialogState(initialListId);
+    } else {
+      (document.getElementById('shareInviteUrlInput') as HTMLInputElement).value = '';
+      (document.getElementById('unshareListBtn') as HTMLButtonElement).hidden = true;
+    }
     (document.getElementById('sharePairUrlInput') as HTMLInputElement).value =
       store.getPairingUrl(window.location.origin);
     (document.getElementById('shareSyncKeyCode') as HTMLElement).textContent = store.syncKey;
@@ -696,12 +708,26 @@ function initApp(): void {
   });
 
   document.getElementById('deleteListBtn')?.addEventListener('click', () => {
-    if (store.isSystemTasksList(activeListId) || store.getActiveLists().length <= 1) return;
+    const currentList = store.getActiveLists().find((l) => l.id === activeListId);
+    if (
+      !currentList ||
+      currentList.shared ||
+      store.isSystemTasksList(activeListId) ||
+      store.getActiveLists().length <= 1
+    ) {
+      return;
+    }
     store.deleteList(activeListId);
     activeView = 'my-day';
     activeListId = store.getDefaultTasksListId();
     showToast(t(store.locale, 'list.deletedToast'));
     render();
+  });
+
+  document.getElementById('copySettingsPairUrlBtn')?.addEventListener('click', async () => {
+    const pairUrl = store.getPairingUrl(window.location.origin);
+    await navigator.clipboard?.writeText(pairUrl).catch(() => undefined);
+    showToast(t(store.locale, 'share.pairCopied'));
   });
 
   document.getElementById('shareListBtn')?.addEventListener('click', openShareModal);

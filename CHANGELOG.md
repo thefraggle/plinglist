@@ -2,6 +2,15 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.7] - 2026-11-24
+
+### Fixed
+- **CSS `[hidden]` Specificity (`app/styles.css`):** Added `[hidden] { display: none !important; }` so `.btn-icon { display: inline-grid; }` no longer reveals hidden list action icons inside *My Day*, *Starred*, *Planned*, or *Tasks*.
+- **MS To Do Parity & Shared List Delete Guard (`app/src/store.ts`, `app/src/web-app.ts`):** Smart views (*My Day*, *Starred*, *Planned*) and the default *Tasks / Aufgaben* inbox (`list-tasks` / `list-tasks-*`) can no longer be renamed, deleted, or shared (and any legacy shared flag on the default tasks list is sanitized on load/sync). Actively shared custom lists cannot be deleted until sharing is stopped via *Stop sharing / Freigabe beenden*.
+
+### Added
+- **Device Pairing Link in Settings (`app/index.html`, `app/src/web-app.ts`):** Added `#copySettingsPairUrlBtn` next to the Sync Key inside Settings so device pairing (`?pair=`) remains accessible even when viewing *My Day* or *Tasks*. Service Worker bumped to `plinglist-app-v5`.
+
 ## [0.1.6] - 2026-11-24
 
 ### Added
