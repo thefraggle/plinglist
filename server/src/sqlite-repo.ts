@@ -15,6 +15,7 @@ import {
   advanceWatermarkIfNeeded,
   isAuthorizedCaller,
   isEntitlementActive,
+  isGuestShareRequest,
   pickHigherHlc,
   type CloudEntitlementGuard,
   type EntitlementPlan,
@@ -242,10 +243,13 @@ export class SqliteSyncRepository implements SyncRepository {
     }
 
     const authorizedListIds = new Set<string>();
+    const revokedListIds: string[] = [];
     for (const listId of requestedListIds) {
       const row = selectListStmt.get(listId) as StoredListRow | undefined;
       if (this.isListRowAuthorized(row, callerKey, callerUserId, listId, request.inviteTokens)) {
         authorizedListIds.add(listId);
+      } else if (row && isGuestShareRequest(listId, request)) {
+        revokedListIds.push(listId);
       }
     }
 
@@ -262,6 +266,7 @@ export class SqliteSyncRepository implements SyncRepository {
         acceptedCount,
         serverLists: [],
         serverTasks: [],
+        revokedListIds,
         cursorHlc: request.sinceHlc ?? null,
       };
     }
@@ -305,6 +310,7 @@ export class SqliteSyncRepository implements SyncRepository {
       acceptedCount,
       serverLists,
       serverTasks,
+      revokedListIds,
       cursorHlc: maxHlc,
     };
   }

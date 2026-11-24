@@ -83,6 +83,7 @@ export const TRANSLATIONS = {
     'settings.tabSync': 'Sync & Import',
     'settings.language': 'Language',
     'settings.syncKey': 'Sync Key (Pair devices without an account)',
+    'settings.editSyncKeyBtn': 'Pair with another Sync Key…',
     'settings.syncKeyHint':
       'Paste the same Sync Key on your other device to sync privately without login.',
     'settings.syncKeyInvalid': 'Sync Key must be at least 8 characters long.',
@@ -97,7 +98,7 @@ export const TRANSLATIONS = {
     'settings.autoHideEmptySmart': 'Auto-hide empty smart lists',
     'settings.showAllSmartList': 'Show "All" smart list',
     'settings.syncNowBtn': 'Sync now',
-    'settings.aboutFooter': 'Plinglist v0.1.10 · Local-First & Open Source (AGPLv3) · 0% Tracking',
+    'settings.aboutFooter': 'Plinglist v0.1.11 · Local-First & Open Source (AGPLv3) · 0% Tracking',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -108,6 +109,7 @@ export const TRANSLATIONS = {
     'toast.nextRecurring': 'Next occurrence scheduled',
     'toast.settingsSaved': 'Settings saved',
     'toast.devicePaired': 'Device paired – all lists synced',
+    'toast.shareRevoked': 'Shared list access was stopped by the owner',
   },
   de: {
     'app.title': 'Plinglist',
@@ -191,6 +193,7 @@ export const TRANSLATIONS = {
     'settings.tabSync': 'Sync & Import',
     'settings.language': 'Sprache',
     'settings.syncKey': 'Sync-Key (Geräte ohne Account koppeln)',
+    'settings.editSyncKeyBtn': 'Mit anderem Sync-Key koppeln…',
     'settings.syncKeyHint':
       'Kopiere diesen Sync-Key auf ein zweites Gerät, um ohne Login privat zu synchronisieren.',
     'settings.syncKeyInvalid': 'Der Sync-Key muss mindestens 8 Zeichen lang sein.',
@@ -205,7 +208,7 @@ export const TRANSLATIONS = {
     'settings.autoHideEmptySmart': 'Leere intelligente Listen automatisch ausblenden',
     'settings.showAllSmartList': 'Intelligente Liste „Alle“ anzeigen',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
-    'settings.aboutFooter': 'Plinglist v0.1.10 · Local-First & Open Source (AGPLv3) · 0% Tracking',
+    'settings.aboutFooter': 'Plinglist v0.1.11 · Local-First & Open Source (AGPLv3) · 0% Tracking',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',
@@ -216,6 +219,7 @@ export const TRANSLATIONS = {
     'toast.nextRecurring': 'Nächste Wiederholung geplant',
     'toast.settingsSaved': 'Einstellungen gespeichert',
     'toast.devicePaired': 'Gerät gekoppelt – alle Listen synchron',
+    'toast.shareRevoked': 'Freigabe der geteilten Liste wurde beendet',
   },
 } as const;
 

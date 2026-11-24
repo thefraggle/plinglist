@@ -314,6 +314,7 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
     });
 
     const list = store.addList('Urlaub');
+    store.addTask({ title: 'Hotel buchen', listId: list.id });
     assert.equal(store.getInviteUrl(list.id, 'https://plinglist.app'), null);
 
     const { inviteUrl, list: shared } = store.shareList(list.id, 'https://plinglist.app');
@@ -321,6 +322,18 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
     assert.equal(store.getInviteUrl(list.id, 'https://plinglist.app'), inviteUrl);
     assert.equal((await store.syncWithServer()).synced, true);
     assert.ok(await repo.resolveInviteToken(token));
+
+    const guestStore = new PlinglistStore({
+      storage: createMemoryStorage(),
+      locale: 'de',
+      serverUrl,
+    });
+    await guestStore.joinSharedListByToken(token);
+    assert.equal(
+      guestStore.getActiveLists().some((l) => l.id === list.id),
+      true,
+    );
+    assert.ok(guestStore.tasks.some((t) => t.title === 'Hotel buchen' && t.listId === list.id));
 
     // Actively shared list cannot be deleted until unshared
     assert.throws(() => store.deleteList(list.id));
@@ -332,6 +345,18 @@ test('PlinglistStore supports read-only getInviteUrl and unshareList with server
 
     assert.equal((await store.syncWithServer()).synced, true);
     assert.equal(await repo.resolveInviteToken(token), null);
+
+    // Guest loses the revoked shared list and its tasks upon next sync
+    const guestSync = await guestStore.syncWithServer();
+    assert.equal(guestSync.revokedLists, 1);
+    assert.equal(
+      guestStore.lists.some((l) => l.id === list.id),
+      false,
+    );
+    assert.equal(
+      guestStore.tasks.some((t) => t.listId === list.id),
+      false,
+    );
 
     store.deleteList(list.id);
     assert.equal(
@@ -539,5 +564,7 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /data-settings-tab="general"/);
   assert.match(html, /data-settings-tab="lists"/);
   assert.match(html, /data-settings-tab="sync"/);
-  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.10/);
+  assert.match(html, /id="settingsSyncKeyInput"[^>]*readonly/);
+  assert.match(html, /id="editSettingsSyncKeyBtn"/);
+  assert.match(t('de', 'settings.aboutFooter'), /v0\.1\.11/);
 });

@@ -302,6 +302,33 @@ test('zero-auth capability isolation blocks cross-workspace access while allowin
     });
     assert.equal(guestRes.acceptedCount, 1);
     assert.equal(guestRes.serverTasks.find((t) => t.id === 't-oat')?.completed, true);
+
+    // Owner stops sharing the list; guest must receive list-shared in revokedListIds on next sync
+    const h3 = formatHlc(8000, 0, 'owner-1');
+    await repo.applyAndPullDeltas({
+      userId: 'u-alice',
+      syncKey: 'pling-alice-key-1111',
+      listIds: ['list-shared'],
+      clientLists: [
+        makeList('list-shared', h3, {
+          title: 'Shared Groceries',
+          shared: false,
+          inviteToken: null,
+        }),
+      ],
+      clientTasks: [],
+    });
+
+    const guestAfterUnshare = await repo.applyAndPullDeltas({
+      userId: 'u-guest',
+      syncKey: 'pling-guest-key-3333',
+      inviteTokens: { 'list-shared': 'inv-groceries-99' },
+      listIds: ['list-shared'],
+      clientLists: [],
+      clientTasks: [],
+    });
+    assert.deepEqual(guestAfterUnshare.revokedListIds, ['list-shared']);
+    assert.equal(guestAfterUnshare.serverLists?.length, 0);
   } finally {
     repo.close();
   }

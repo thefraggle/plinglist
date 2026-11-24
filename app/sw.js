@@ -1,4 +1,4 @@
-const CACHE_NAME = 'plinglist-app-v8';
+const CACHE_NAME = 'plinglist-app-v9';
 const ASSETS = [
   './',
   './index.html',

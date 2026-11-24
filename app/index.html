@@ -511,9 +511,14 @@
 
           <section class="settings-panel" data-settings-panel="sync" hidden>
             <div class="field-group">
-              <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
+              <div class="sync-row">
+                <label for="settingsSyncKeyInput" data-i18n="settings.syncKey">Sync-Key</label>
+                <button type="button" id="editSettingsSyncKeyBtn" class="btn-ghost btn-compact" data-i18n="settings.editSyncKeyBtn">
+                  Mit anderem Sync-Key koppeln…
+                </button>
+              </div>
               <div class="copy-row">
-                <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" required />
+                <input id="settingsSyncKeyInput" type="text" autocomplete="off" minlength="8" readonly required />
                 <button type="button" id="copySettingsPairUrlBtn" class="btn-secondary btn-compact" data-i18n="share.copyPairBtn">
                   Koppellink kopieren
                 </button>

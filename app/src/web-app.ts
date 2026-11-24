@@ -267,7 +267,24 @@ function initApp(): void {
       const result = await store.syncWithServer();
       if (result.synced) {
         hasSyncedOnce = true;
-        if (result.pulledLists > 0 || result.pulledTasks > 0) {
+        if (result.revokedLists > 0) {
+          if (
+            activeView === 'list' &&
+            !store.getActiveLists().some((l) => l.id === activeListId)
+          ) {
+            activeView = 'my-day';
+            activeListId = store.getDefaultTasksListId();
+          }
+          if (
+            editingTaskId &&
+            !store.tasks.some((task) => task.id === editingTaskId && task.deletedAt === null)
+          ) {
+            editingTaskId = null;
+            void closeTopLayer(taskDialog);
+          }
+          showToast(t(store.locale, 'toast.shareRevoked'));
+        }
+        if (result.pulledLists > 0 || result.pulledTasks > 0 || result.revokedLists > 0) {
           render();
         } else {
           updateSyncLabels();
@@ -998,7 +1015,11 @@ function initApp(): void {
     closeMobileDrawer();
     selectSettingsTab('general');
     (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
-    (document.getElementById('settingsSyncKeyInput') as HTMLInputElement).value = store.syncKey;
+    const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement;
+    syncKeyInput.value = store.syncKey;
+    syncKeyInput.readOnly = true;
+    const editSyncKeyBtn = document.getElementById('editSettingsSyncKeyBtn') as HTMLButtonElement | null;
+    if (editSyncKeyBtn) editSyncKeyBtn.hidden = false;
     (document.getElementById('settingsServerUrlInput') as HTMLInputElement).value = store.serverUrl;
     (document.getElementById('settingsSoundCheckbox') as HTMLInputElement).checked =
       store.soundEnabled;
@@ -1017,6 +1038,16 @@ function initApp(): void {
     updateSyncLabels();
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
     settingsDialog.showModal();
+  });
+
+  document.getElementById('editSettingsSyncKeyBtn')?.addEventListener('click', () => {
+    const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
+    const editBtn = document.getElementById('editSettingsSyncKeyBtn') as HTMLButtonElement | null;
+    if (!syncKeyInput) return;
+    syncKeyInput.readOnly = false;
+    if (editBtn) editBtn.hidden = true;
+    syncKeyInput.focus();
+    syncKeyInput.select();
   });
 
   document.getElementById('manualSyncBtn')?.addEventListener('click', async () => {

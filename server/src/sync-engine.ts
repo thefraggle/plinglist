@@ -43,6 +43,7 @@ export interface SyncResponse {
   acceptedCount: number;
   serverLists?: TaskList[];
   serverTasks: TaskItem[];
+  revokedListIds?: string[];
   cursorHlc: HlcTimestamp | null;
 }
 
@@ -94,6 +95,14 @@ export function isAuthorizedCaller(params: {
     return provided === storedInviteToken;
   }
   return false;
+}
+
+export function isGuestShareRequest(listId: string, request: SyncRequest): boolean {
+  if (request.inviteTokens?.[listId]) {
+    return true;
+  }
+  const clientList = request.clientLists?.find((l) => l.id === listId);
+  return Boolean(clientList && (clientList.shared || clientList.inviteToken));
 }
 
 export function pickHigherHlc(
@@ -231,9 +240,12 @@ export class InMemorySyncRepository implements SyncRepository {
     }
 
     const pullListIds = new Set<string>();
+    const revokedListIds: string[] = [];
     for (const listId of requestedLists) {
       if (this.isAuthorizedForList(listId, callerKey, callerUserId, request.inviteTokens)) {
         pullListIds.add(listId);
+      } else if (this.listsById.has(listId) && isGuestShareRequest(listId, request)) {
+        revokedListIds.push(listId);
       }
     }
     for (const [listId, owner] of this.ownerByListId.entries()) {
@@ -273,6 +285,7 @@ export class InMemorySyncRepository implements SyncRepository {
       acceptedCount,
       serverLists,
       serverTasks,
+      revokedListIds,
       cursorHlc: maxHlc,
     };
   }

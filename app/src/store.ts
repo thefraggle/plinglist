@@ -767,8 +767,9 @@ export class PlinglistStore {
   applyServerSync(response: {
     serverLists?: TaskList[];
     serverTasks: TaskItem[];
+    revokedListIds?: string[];
     cursorHlc: HlcTimestamp | null;
-  }): { pulledLists: number; pulledTasks: number } {
+  }): { pulledLists: number; pulledTasks: number; revokedLists: number } {
     let pulledLists = 0;
     let pulledTasks = 0;
 
@@ -794,18 +795,28 @@ export class PlinglistStore {
       }
     }
 
+    let revokedLists = 0;
+    for (const revokedId of response.revokedListIds ?? []) {
+      if (this.isSystemTasksList(revokedId)) continue;
+      if (this.lists.some((l) => l.id === revokedId)) {
+        this.lists = this.lists.filter((l) => l.id !== revokedId);
+        this.tasks = this.tasks.filter((t) => t.listId !== revokedId);
+        revokedLists += 1;
+      }
+    }
+
     if (response.cursorHlc) {
       this.cursorHlc = response.cursorHlc;
     }
 
     this.consolidateWorkspaceLists();
     this.persist(true);
-    return { pulledLists, pulledTasks };
+    return { pulledLists, pulledTasks, revokedLists };
   }
 
   async syncWithServer(
     fetchFn: typeof fetch = globalThis.fetch,
-  ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number }> {
+  ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number; revokedLists: number }> {
     const inviteTokens: Record<string, string> = {};
     for (const list of this.lists) {
       if (list.inviteToken) {
@@ -828,17 +839,18 @@ export class PlinglistStore {
         }),
       });
       if (!response.ok) {
-        return { synced: false, pulledLists: 0, pulledTasks: 0 };
+        return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
       }
       const data = (await response.json()) as {
         serverLists?: TaskList[];
         serverTasks: TaskItem[];
+        revokedListIds?: string[];
         cursorHlc: HlcTimestamp | null;
       };
       const applied = this.applyServerSync(data);
       return { synced: true, ...applied };
     } catch {
-      return { synced: false, pulledLists: 0, pulledTasks: 0 };
+      return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
     }
   }
 
