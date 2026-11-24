@@ -2,6 +2,11 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.15] - 2026-11-24
+
+### Changed
+- **Sidebar Footer & Inline Link Refinement (`app/index.html`, `app/styles.css`, `app/sw.js`):** Removed permanent underlines from `.sidebar-legal-row` (`.sidebar-legal-link`), linked `Goork` to `https://goork.de`, added a compact GitHub SVG icon link (`.sidebar-legal-icon`), and kept `.link-inline` strictly inline so imprint contact lines preserve natural line spacing. Bumped Service Worker cache to `plinglist-app-v13`.
+
 ## [0.1.14] - 2026-11-24
 
 ### Added
