@@ -38,7 +38,7 @@ plinglist/
 └── docker-compose.yml
 ```
 
-*(Note: Official managed cloud billing, push notification relay, store metadata/screenshot generators, and protected brand assets reside in the private `plinglist-cloud` repository under `./cloud/`, which is gitignored here.)*
+*(Note: Optional managed-cloud extensions and protected brand assets reside in a separate private overlay under `./cloud/`, which is gitignored here; see [TRADEMARK.md](TRADEMARK.md).)*
 
 ---
 

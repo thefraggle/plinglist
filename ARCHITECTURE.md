@@ -42,10 +42,10 @@ flowchart TB
         Repo --> HLC
     end
 
-    subgraph Cloud["Private Cloud Overlay (./cloud/, gitignored)"]
-        Guard["CloudEntitlementGuard\n(Stripe / RevenueCat 15 EUR/yr | 39 EUR Lifetime)"]
-        Push["Push Relay\n(APNs / FCM DE & EN Payloads)"]
-        Assets["Brand Overlay Script\n(Official Pling Audio & Store Icons)"]
+    subgraph Cloud["Optional Cloud Overlay (./cloud/, gitignored)"]
+        Guard["CloudEntitlementGuard\n(Optional Entitlement Hook)"]
+        Push["Push Relay\n(Optional Push Payloads)"]
+        Assets["Brand Overlay\n(Optional Release Assets)"]
     end
 
     Store <-->|POST/DELETE /api/v1/sync + Invite Join| HTTP
@@ -99,7 +99,7 @@ PRAGMA busy_timeout = 5000;
 | `GET /join/:token` | Browser invite entry | `302` redirect to `${PUBLIC_BASE_URL}/?join=<token>` |
 | `POST /api/v1/cloud/webhooks/stripe` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies required `Bearer ${CLOUD_WEBHOOK_SECRET}` via `crypto.timingSafeEqual` (fail-closed), persists Stripe `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
 | `POST /api/v1/cloud/webhooks/revenuecat` | Cloud billing webhook (`CLOUD_EXTENSION_ENABLED=true`) | Verifies required `Bearer ${CLOUD_WEBHOOK_SECRET}` via `crypto.timingSafeEqual` (fail-closed), persists RevenueCat `pro_yearly` / `pro_lifetime` / `free` into `entitlements` |
-| `GET /.well-known/apple-app-site-association` | Apple Universal Links manifest | Serves `applinks` for `${APPLE_APP_ID}` (`296C735W8C.de.goork.plinglist`) across `/` and `/join/*` |
+| `GET /.well-known/apple-app-site-association` | Apple Universal Links manifest | Serves `applinks` for `${APPLE_TEAM_ID}.${APPLE_BUNDLE_ID}` across `/` and `/join/*` |
 | `GET /.well-known/assetlinks.json` | Android App Links manifest | Serves `delegate_permission/common.handle_all_urls` for `de.goork.plinglist` with configured Google Play & upload SHA-256 fingerprints |
 | `GET /` & static assets | App shell & static delivery | Sets `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy`, `Cache-Control: no-cache` on mutable entries (`.html`, `.js`, `.css`, `sw.js`, `.webmanifest`), dynamic Open Graph tags + `X-Robots-Tag: noindex, nofollow` for `?join=` / `?pair=` (keeping browser `<title>` intact), and real `404` responses |
 | `OPTIONS /api/*` | CORS preflight | Returns `204` with `Access-Control-Allow-Origin: *` (`GET, POST, DELETE, OPTIONS`) |
@@ -109,4 +109,4 @@ PRAGMA busy_timeout = 5000;
 ## 6. Open-Core & Brand Separation
 
 - **Public Repo (`plinglist`, AGPLv3):** Contains the complete local-first app (with `getDefaultServerUrl()` same-origin resolution, `isNativeShellOrigin()` / `getShareBaseOrigin()` for Capacitor 7 iOS, Mac Catalyst & Android `https://localhost`, `includePlugins: ["@capacitor/app"]`, `MainActivity.java` / `AppDelegate.swift` deep-link bridges, Android `backButton` / drawer swipe-left handling, Network-First `sw.js`, `?join=`/`?pair=` URL extraction, and `plinglist://` deep links), core HLC engine, importers, CI/CD Capacitor wrapper workflows (`.github/workflows/build-ios-macos.yml`, `.github/workflows/build-android.yml`), and self-hosted SQLite WAL sync server. Uses a clean pure-sine Web Audio chime and no paywall enforcement by default.
-- **Private Cloud Repo (`./cloud/`, gitignored):** Holds Stripe/RevenueCat entitlement checks (`CloudEntitlementGuard`), APNs/FCM push notification payload builders, Contabo deployment workflows, `generate-brand-icons.mjs` (Xcode `AppIcon.appiconset` for iOS/macOS, Android `mipmap-*` + adaptive foregrounds, `og-image.png`, PWA icons), Playwright/Pillow Store screenshot automation (`generate-appstore-screenshots.py`), platform-neutral `CHANGELOG.md` parser (`changelog-notes.mjs`), App Store Connect & Google Play API sync scripts (`sync-appstore-metadata.mjs`, `sync-playstore-metadata.mjs`), and protected Plinglist trademarks/audio (`TRADEMARK.md`). During release builds, `apply-brand-overlay.sh` copies protected assets into `app/public/`, `ios/App/App/Assets.xcassets/AppIcon.appiconset/`, and `android/app/src/main/res/`, and `scripts/build-app.mjs` mirrors `app/public/` into `app/dist/` and stamps `CACHE_NAME` with `package.json`'s version.
+- **Optional Private Cloud Overlay (`./cloud/`, gitignored):** Separates commercial billing/entitlement guards (`CloudEntitlementGuard`), optional push delivery, store metadata automation, and protected brand audio/icon assets (`TRADEMARK.md`) from the AGPLv3 open-core codebase. Release builds apply any present `./cloud/` overlay assets into `app/public/` and native wrapper resource directories before `scripts/build-app.mjs` compiles `app/dist/` and stamps `CACHE_NAME` from `package.json`.
