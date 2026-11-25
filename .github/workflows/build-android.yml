@@ -13,9 +13,9 @@ on:
           - apk-only
           - metadata-only
       version_code:
-        description: 'Android versionCode integer (must strictly increase for every Google Play upload)'
+        description: 'Android versionCode (auto = next free Google Play versionCode)'
         required: true
-        default: '2'
+        default: 'auto'
         type: string
       play_track:
         description: 'Target Google Play track'
@@ -88,6 +88,8 @@ jobs:
         if: ${{ inputs.target_action != 'metadata-only' }}
         env:
           VERSION_CODE: ${{ inputs.version_code }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           if [ ! -d "$ANDROID_HOME/platforms/android-36" ]; then
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null || true
@@ -104,26 +106,92 @@ jobs:
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
 
           APP_VERSION="$APP_VERSION" VERSION_CODE="$VERSION_CODE" node - <<'EOF'
+          const crypto = require('node:crypto');
           const fs = require('node:fs');
 
-          const varsPath = 'android/variables.gradle';
-          if (fs.existsSync(varsPath)) {
-            let vars = fs.readFileSync(varsPath, 'utf8');
-            vars = vars.replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 26');
-            vars = vars.replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 36');
-            vars = vars.replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 36');
-            fs.writeFileSync(varsPath, vars);
+          async function resolveNextPlayVersionCode() {
+            const saRaw = process.env.SERVICE_ACCOUNT_JSON;
+            if (!saRaw) return 0;
+            try {
+              const sa = JSON.parse(saRaw);
+              const now = Math.floor(Date.now() / 1000);
+              const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+              const input = `${b64u({ alg: 'RS256', typ: 'JWT' })}.${b64u({
+                iss: sa.client_email,
+                scope: 'https://www.googleapis.com/auth/androidpublisher',
+                aud: 'https://oauth2.googleapis.com/token',
+                iat: now,
+                exp: now + 300,
+              })}`;
+              const sig = crypto.sign('RSA-SHA256', Buffer.from(input), sa.private_key).toString('base64url');
+              const tokRes = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                  assertion: `${input}.${sig}`,
+                }),
+              });
+              const { access_token } = await tokRes.json();
+              if (!access_token) return 0;
+
+              const base = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(process.env.PLAY_PACKAGE_NAME || 'de.goork.plinglist')}`;
+              const editRes = await fetch(`${base}/edits`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+                body: '{}',
+              });
+              if (!editRes.ok) return 0;
+              const edit = await editRes.json();
+              const bundlesRes = await fetch(`${base}/edits/${edit.id}/bundles`, {
+                headers: { Authorization: `Bearer ${access_token}` },
+              });
+              let maxCode = 0;
+              if (bundlesRes.ok) {
+                const bData = await bundlesRes.json();
+                for (const b of bData.bundles || []) {
+                  const code = Number.parseInt(String(b.versionCode ?? '0'), 10);
+                  if (Number.isFinite(code) && code > maxCode) maxCode = code;
+                }
+              }
+              await fetch(`${base}/edits/${edit.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${access_token}` },
+              }).catch(() => {});
+              return maxCode;
+            } catch (err) {
+              console.warn(`Notice: could not query existing Google Play bundles (${err.message})`);
+              return 0;
+            }
           }
 
-          const gradlePath = 'android/app/build.gradle';
-          let gradle = fs.readFileSync(gradlePath, 'utf8');
-          gradle = gradle.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 26');
-          gradle = gradle.replace(/compileSdk\s+\d+/g, 'compileSdk 36');
-          gradle = gradle.replace(/compileSdkVersion\s+\d+/g, 'compileSdkVersion 36');
-          gradle = gradle.replace(/targetSdkVersion\s+\d+/g, 'targetSdkVersion 36');
-          gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${process.env.VERSION_CODE}`);
-          gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${process.env.APP_VERSION}"`);
-          fs.writeFileSync(gradlePath, gradle);
+          (async () => {
+            const maxPlayVersionCode = await resolveNextPlayVersionCode();
+            const reqCode = Number.parseInt(process.env.VERSION_CODE || '0', 10);
+            const fallbackCode = Number.parseInt(process.env.RUN_NUMBER || '1', 10) || 1;
+            const explicitOrFallback = Number.isFinite(reqCode) && reqCode > 0 ? reqCode : (maxPlayVersionCode > 0 ? 1 : fallbackCode);
+            const effectiveVersionCode = Math.max(explicitOrFallback, maxPlayVersionCode + 1);
+            console.log(`Resolved Android versionCode: ${effectiveVersionCode} (previous Google Play max: ${maxPlayVersionCode})`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `EFFECTIVE_VERSION_CODE=${effectiveVersionCode}\n`);
+
+            const varsPath = 'android/variables.gradle';
+            if (fs.existsSync(varsPath)) {
+              let vars = fs.readFileSync(varsPath, 'utf8');
+              vars = vars.replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 26');
+              vars = vars.replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 36');
+              vars = vars.replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 36');
+              fs.writeFileSync(varsPath, vars);
+            }
+
+            const gradlePath = 'android/app/build.gradle';
+            let gradle = fs.readFileSync(gradlePath, 'utf8');
+            gradle = gradle.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 26');
+            gradle = gradle.replace(/compileSdk\s+\d+/g, 'compileSdk 36');
+            gradle = gradle.replace(/compileSdkVersion\s+\d+/g, 'compileSdkVersion 36');
+            gradle = gradle.replace(/targetSdkVersion\s+\d+/g, 'targetSdkVersion 36');
+            gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${effectiveVersionCode}`);
+            gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${process.env.APP_VERSION}"`);
+            fs.writeFileSync(gradlePath, gradle);
 
           const propsPath = 'android/gradle.properties';
           if (fs.existsSync(propsPath)) {
@@ -134,10 +202,10 @@ jobs:
             }
           }
 
-          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
-          let manifest = fs.readFileSync(manifestPath, 'utf8');
-          if (!manifest.includes('android:scheme="plinglist"')) {
-            const deepLinkFilters = `
+            const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+            let manifest = fs.readFileSync(manifestPath, 'utf8');
+            if (!manifest.includes('android:scheme="plinglist"')) {
+              const deepLinkFilters = `
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -151,9 +219,13 @@ jobs:
                 <data android:scheme="https" android:host="plinglist.app" android:path="/" />
                 <data android:scheme="https" android:host="plinglist.app" android:pathPrefix="/join" />
             </intent-filter>`;
-            manifest = manifest.replace('</activity>', `${deepLinkFilters}\n        </activity>`);
-            fs.writeFileSync(manifestPath, manifest);
-          }
+              manifest = manifest.replace('</activity>', `${deepLinkFilters}\n        </activity>`);
+              fs.writeFileSync(manifestPath, manifest);
+            }
+          })().catch((err) => {
+            console.error(`::error::${err.message}`);
+            process.exit(1);
+          });
           EOF
 
       - name: Build & Sign Android Release APK & AAB
@@ -219,7 +291,7 @@ jobs:
         if: ${{ inputs.target_action != 'metadata-only' }}
         uses: actions/upload-artifact@v4
         with:
-          name: plinglist-android-v${{ env.APP_VERSION }}-vc${{ inputs.version_code }}
+          name: plinglist-android-v${{ env.APP_VERSION }}-vc${{ env.EFFECTIVE_VERSION_CODE || inputs.version_code }}
           path: |
             dist/*.apk
             dist/*.aab
