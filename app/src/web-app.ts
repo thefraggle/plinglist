@@ -650,6 +650,41 @@ function initApp(): void {
     window.setTimeout(() => item.remove(), 2600);
   }
 
+  function createCustomListGlyphSvg(shared: boolean): SVGSVGElement {
+    const svgNs = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('width', '18');
+    svg.setAttribute('height', '18');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    if (shared) {
+      const circle = document.createElementNS(svgNs, 'circle');
+      circle.setAttribute('cx', '9');
+      circle.setAttribute('cy', '7');
+      circle.setAttribute('r', '4');
+      svg.appendChild(circle);
+      for (const d of [
+        'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2',
+        'M22 21v-2a4 4 0 0 0-3-3.87',
+        'M16 3.13a4 4 0 0 1 0 7.75',
+      ]) {
+        const p = document.createElementNS(svgNs, 'path');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+      }
+    } else {
+      const p = document.createElementNS(svgNs, 'path');
+      p.setAttribute('d', 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01');
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
   function formatShortDate(rawDate: string): string {
     const parsed = new Date(`${rawDate}T12:00:00`);
     if (Number.isNaN(parsed.getTime())) return rawDate;
@@ -918,17 +953,27 @@ function initApp(): void {
         activeView === 'lists' && activeListId === list.id ? 'page' : 'false',
       );
 
+      const labelWrap = document.createElement('span');
+      labelWrap.className = 'nav-label-wrap';
+      const glyphSpan = document.createElement('span');
+      glyphSpan.className = 'nav-glyph';
+      glyphSpan.setAttribute('aria-hidden', 'true');
+      glyphSpan.appendChild(createCustomListGlyphSvg(list.shared));
+
       const labelSpan = document.createElement('span');
+      labelSpan.className = 'nav-label';
       labelSpan.textContent = list.shared
         ? `${list.title} (${t(store.locale, 'list.sharedBadge')})`
         : list.title;
+      labelWrap.append(glyphSpan, labelSpan);
+
       const countSpan = document.createElement('span');
       countSpan.className = 'nav-count';
       countSpan.textContent = String(
         getListTasks(store.tasks, list.id).filter((item) => !item.completed).length,
       );
 
-      btn.append(labelSpan, countSpan);
+      btn.append(labelWrap, countSpan);
       btn.addEventListener('click', () => {
         activeView = 'lists';
         activeListId = list.id;
@@ -962,12 +1007,11 @@ function initApp(): void {
 
     if (activeView === 'my-day') {
       viewTitle.textContent = t(store.locale, 'nav.myDay');
-      const formattedToday = new Intl.DateTimeFormat(store.locale === 'de' ? 'de-DE' : 'en-US', {
-        weekday: 'short',
+      viewSubtitle.textContent = new Intl.DateTimeFormat(store.locale === 'de' ? 'de-DE' : 'en-US', {
+        weekday: 'long',
         day: 'numeric',
-        month: 'short',
+        month: 'long',
       }).format(new Date());
-      viewSubtitle.textContent = `${formattedToday} · ${t(store.locale, 'myDay.resetHint')}`;
       visibleTasks = myDayItems;
     } else if (activeView === 'starred') {
       viewTitle.textContent = t(store.locale, 'nav.starred');
@@ -990,6 +1034,7 @@ function initApp(): void {
       viewSubtitle.textContent = currentList?.shared ? t(store.locale, 'list.sharedBadge') : '';
       visibleTasks = currentList ? getListTasks(store.tasks, currentList.id) : [];
     }
+    viewSubtitle.hidden = viewSubtitle.textContent.length === 0;
 
     const suggestionsList = document.getElementById('suggestionsList') as HTMLUListElement;
     suggestionsList.replaceChildren(
