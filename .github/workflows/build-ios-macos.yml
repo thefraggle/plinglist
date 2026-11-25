@@ -438,21 +438,37 @@ jobs:
           fi
 
           if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
-            MAC_PROFILE_NAME="$MAC_PROFILE_NAME" node - <<'EOF'
+            MAC_PROFILE_NAME="$MAC_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" node - <<'EOF'
           const fs = require('node:fs');
+          const teamId = process.env.APPLE_TEAM_ID;
           const pbxPath = 'App.xcodeproj/project.pbxproj';
           let pbx = fs.readFileSync(pbxPath, 'utf8');
           pbx = pbx.replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;');
           pbx = pbx.replace(/"?CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]"? = ".*?";/g, '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";');
+          pbx = pbx.replace(/"?CODE_SIGN_IDENTITY\[sdk=macosx\*\]"? = ".*?";/g, '"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Distribution";');
           pbx = pbx.replace(/CODE_SIGN_IDENTITY = ".*?";/g, 'CODE_SIGN_IDENTITY = "Apple Distribution";');
           pbx = pbx.replace(/PROVISIONING_PROFILE_SPECIFIER = ".*?";/g, `PROVISIONING_PROFILE_SPECIFIER = "${process.env.MAC_PROFILE_NAME}";`);
           if (!pbx.includes('PROVISIONING_PROFILE_SPECIFIER')) {
             pbx = pbx.replace(
               /PRODUCT_BUNDLE_IDENTIFIER = de\.goork\.plinglist;/g,
-              `CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "${process.env.MAC_PROFILE_NAME}";\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
+              `CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\t"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "${process.env.MAC_PROFILE_NAME}";\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
             );
           }
           fs.writeFileSync(pbxPath, pbx);
+
+          const podsPath = 'Pods/Pods.xcodeproj/project.pbxproj';
+          if (fs.existsSync(podsPath)) {
+            let pods = fs.readFileSync(podsPath, 'utf8');
+            pods = pods.replace(/CODE_SIGN_STYLE = Automatic;/g, 'CODE_SIGN_STYLE = Manual;');
+            pods = pods.replace(/"?CODE_SIGN_IDENTITY\[sdk=macosx\*\]"? = ".*?";/g, '"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Distribution";');
+            pods = pods.replace(/CODE_SIGN_IDENTITY = ".*?";/g, 'CODE_SIGN_IDENTITY = "Apple Distribution";');
+            pods = pods.replace(/DEVELOPMENT_TEAM = .*?;/g, `DEVELOPMENT_TEAM = ${teamId};`);
+            pods = pods.replace(
+              /buildSettings = \{/g,
+              `buildSettings = {\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\t"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = ${teamId};`
+            );
+            fs.writeFileSync(podsPath, pods);
+          }
           EOF
 
             if ! xcodebuild archive \
