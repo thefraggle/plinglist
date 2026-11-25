@@ -5,10 +5,13 @@ All notable changes to **Plinglist** are documented in this file.
 ## [0.1.19] - 2026-11-24
 
 ### Added
-- **iOS & macOS App Preparation (`capacitor.config.json`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/index.html`, `app/styles.css`):**
-  - Added Capacitor 7 configuration (`de.goork.plinglist`, `webDir: app/dist`, custom scheme `Plinglist`).
+- **iOS & macOS App Preparation (`capacitor.config.json`, `.github/workflows/build-ios-macos.yml`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/index.html`, `app/styles.css`):**
+  - Added Capacitor 7 configuration (`de.goork.plinglist`, `webDir: app/dist`, custom scheme `Plinglist`) and manual `workflow_dispatch` CI workflow for archiving/uploading iOS & Mac Catalyst builds to App Store Connect.
   - Added `isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, and `extractInviteTokenFromInput()` so native iOS/macOS WebViews sync against the configured backend, emit clean `https://plinglist.app/?join=` / `?pair=` share links, accept pasted `?pair=` / `?join=` URLs directly in-app, and handle incoming `plinglist://` deep links.
   - Added `#joinSharedListForm` in `#shareDialog`, `apple-mobile-web-app-*` PWA meta tags in `app/index.html`, and `env(safe-area-inset-top)` padding on `.sidebar` / `.main-view`.
+
+### Changed
+- **Crisp Pure-Sine "Pling" Audio (`app/src/audio.ts`, `app/src/web-app.ts`, `app/sw.js`):** Aligned the app completion chime (`880 Hz -> 1318.51 Hz` pure sine without triangle harmonics) and `pling.wav` overlay with the landing-page sound signature, and bumped Service Worker cache to `plinglist-app-v16`.
 
 ## [0.1.18] - 2026-11-24
 

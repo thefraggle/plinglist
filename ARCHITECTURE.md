@@ -18,10 +18,10 @@ Plinglist is a fast, local-first, bilingual (EN/DE) to-do list application desig
 
 ```mermaid
 flowchart TB
-    subgraph Clients["Client Layer (app/)"]
-        WebUI["Web-App / PWA UI\n(index.html, styles.css, web-app.ts)"]
+    subgraph Clients["Client Layer (app/ & Capacitor 7 iOS/macOS)"]
+        WebUI["Web-App / PWA / Native WebView\n(index.html, styles.css, web-app.ts)"]
         Store["PlinglistStore\n(localStorage + Background Sync)"]
-        Audio["Web Audio API Chime\n(CC0 Placeholder / Brand Overlay)"]
+        Audio["Web Audio API Chime\n(Pure-Sine Pling / Brand Overlay)"]
         WebUI --> Store
         WebUI --> Audio
     end
@@ -106,5 +106,5 @@ PRAGMA busy_timeout = 5000;
 
 ## 6. Open-Core & Brand Separation
 
-- **Public Repo (`plinglist`, AGPLv3):** Contains the complete local-first app (with `getDefaultServerUrl()` same-origin resolution), core HLC engine, importers, and self-hosted SQLite WAL sync server. Uses a neutral CC0 Web Audio synthesizer chime and no paywall enforcement by default.
-- **Private Cloud Repo (`./cloud/`, gitignored):** Holds Stripe/RevenueCat entitlement checks (`CloudEntitlementGuard`), APNs/FCM push notification payload builders, Contabo deployment workflows, and protected Plinglist trademarks/audio (`TRADEMARK.md`). During release builds, `apply-brand-overlay.sh` copies protected assets into `app/public/` and `scripts/build-app.mjs` mirrors `app/public/` into `app/dist/`.
+- **Public Repo (`plinglist`, AGPLv3):** Contains the complete local-first app (with `getDefaultServerUrl()` same-origin resolution, `isNativeShellOrigin()` / `getShareBaseOrigin()` for Capacitor 7 iOS & Mac Catalyst, `?join=`/`?pair=` URL extraction, and `plinglist://` deep links), core HLC engine, importers, and self-hosted SQLite WAL sync server. Uses a clean pure-sine Web Audio chime and no paywall enforcement by default.
+- **Private Cloud Repo (`./cloud/`, gitignored):** Holds Stripe/RevenueCat entitlement checks (`CloudEntitlementGuard`), APNs/FCM push notification payload builders, Contabo deployment workflows, `generate-brand-icons.mjs` (`AppIcon.appiconset` + PWA icons), and protected Plinglist trademarks/audio (`TRADEMARK.md`). During release builds, `apply-brand-overlay.sh` copies protected assets into `app/public/` (and `ios/App/App/Assets.xcassets/AppIcon.appiconset/`) and `scripts/build-app.mjs` mirrors `app/public/` into `app/dist/`.

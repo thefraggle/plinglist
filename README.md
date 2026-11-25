@@ -13,7 +13,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 - **6 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), *All / Alle*, *Tasks / Aufgaben*, and *Custom & Shared Lists* (`?join=`), plus debounced live search (`?q=`) and URL state persistence (`?view=`).
 - **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), automatic GDPR tombstone content scrubbing on delete, and 1-click workspace erasure (`DELETE /api/v1/sync`).
 - **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON & CSV)**.
-- **Open Core + Self-Hostable:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL).
+- **Open Core, Web/PWA & Native Apple Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 preparation for iOS, iPadOS, and macOS (Mac Catalyst).
 
 ---
 
@@ -21,6 +21,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 
 ```text
 plinglist/
+├── .github/workflows/   # Manual iOS & macOS App Store workflow (workflow_dispatch)
 ├── packages/core/       # HLC clock, field-level LWW merge, view/search selectors & JSON/CSV importers
 ├── server/              # Node 22 HTTP static + SQLite WAL sync server & invite endpoints
 │   └── src/
@@ -30,6 +31,7 @@ plinglist/
 │       └── sync-engine.ts
 ├── app/                 # Bilingual local-first Web-App & PWA (index.html, styles.css, store.ts, web-app.ts)
 ├── scripts/             # Zero-dependency TypeScript-stripping build script (build-app.mjs)
+├── capacitor.config.json # Capacitor 7 native iOS & macOS configuration (app/dist -> de.goork.plinglist)
 ├── ARCHITECTURE.md      # Technical architecture, HLC sync & SQLite WAL schema
 ├── CHANGELOG.md
 ├── Dockerfile
@@ -45,7 +47,7 @@ plinglist/
 Requires **Node.js 22+**.
 
 ```bash
-# Run the test suite across core, server, and app (36 tests)
+# Run the test suite across core, server, and app (40 tests)
 npm test
 
 # Build the browser bundle into app/dist/
