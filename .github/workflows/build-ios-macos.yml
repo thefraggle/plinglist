@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - ios
+          - metadata-only
           - macos
           - all
       build_number:
@@ -74,6 +75,7 @@ jobs:
           npm test
 
       - name: Initialize & Sync Capacitor 7 iOS Project (iOS + Mac Catalyst)
+        if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
           npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7
           npx cap add ios
@@ -147,6 +149,7 @@ jobs:
           npx cap sync ios
 
       - name: Configure Bundle ID, Version, URL Scheme & Mac Catalyst
+        if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
           APP_VERSION=$(node -p "require('./package.json').version")
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
@@ -167,6 +170,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST" 2>/dev/null || true
 
       - name: Select Latest Xcode
+        if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
           LATEST_XCODE=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
           if [ -n "$LATEST_XCODE" ]; then
@@ -175,7 +179,7 @@ jobs:
           xcodebuild -version | head -n 1
 
       - name: Install Apple Distribution Certificate & Fetch/Install Provisioning Profiles
-        if: ${{ inputs.upload_to_appstore }}
+        if: ${{ inputs.upload_to_appstore && inputs.target_platform != 'metadata-only' }}
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -543,6 +547,21 @@ jobs:
               -destination "generic/platform=macOS,variant=Mac Catalyst" \
               -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
               CODE_SIGNING_ALLOWED=NO
+          fi
+
+      - name: Sync App Store Connect Version (0.1.19), Texts & Screenshots
+        if: ${{ inputs.upload_to_appstore && (inputs.target_platform == 'ios' || inputs.target_platform == 'metadata-only' || inputs.target_platform == 'all') }}
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          if [ -f cloud/scripts/sync-appstore-metadata.mjs ]; then
+            node cloud/scripts/sync-appstore-metadata.mjs
+          else
+            echo "::error::Missing cloud/scripts/sync-appstore-metadata.mjs (ensure CLOUD_SSH_KEY is configured)."
+            exit 1
           fi
 
       - name: Cleanup Keys
