@@ -167,7 +167,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string ${APP_BUNDLE_ID}" "$INFO_PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO_PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string plinglist" "$INFO_PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Plinglist" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Plinglist" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.productivity" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$INFO_PLIST"
 
       - name: Select Latest Xcode
         if: ${{ inputs.target_platform != 'metadata-only' }}
@@ -214,7 +217,9 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
 
           CERT_SERIAL=$( (openssl pkcs12 -legacy -in "$RUNNER_TEMP/dist.p12" -passin env:P12_PASSWORD -nokeys -clcerts 2>/dev/null || openssl pkcs12 -in "$RUNNER_TEMP/dist.p12" -passin env:P12_PASSWORD -nokeys -clcerts) | openssl x509 -noout -serial | sed 's/serial=//' | tr '[:lower:]' '[:upper:]' )
-          echo "Distribution Certificate Serial: $CERT_SERIAL"
+          DIST_CERT_SHA1=$( (openssl pkcs12 -legacy -in "$RUNNER_TEMP/dist.p12" -passin env:P12_PASSWORD -nokeys -clcerts 2>/dev/null || openssl pkcs12 -in "$RUNNER_TEMP/dist.p12" -passin env:P12_PASSWORD -nokeys -clcerts) | openssl x509 -noout -fingerprint -sha1 | sed 's/.*=//;s/://g' | tr '[:lower:]' '[:upper:]' )
+          echo "Distribution Certificate Serial: $CERT_SERIAL (SHA1: $DIST_CERT_SHA1)"
+          echo "DIST_CERT_SHA1=$DIST_CERT_SHA1" >> "$GITHUB_ENV"
 
           mkdir -p "$RUNNER_TEMP/private_keys"
           (umask 077 && echo "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8")
@@ -324,6 +329,168 @@ jobs:
             }
             if (target === 'all' || target === 'macos') {
               await ensureProfile(bundle.id, cert.id, 'MAC_CATALYST_APP_STORE', 'Plinglist Mac Catalyst AppStore', 'MAC');
+
+              // Derive a persistent deterministic RSA-2048 key so CI reuses the same
+              // MAC_INSTALLER_DISTRIBUTION certificate across runs without ever revoking it.
+              function derivePrime(seed, label, bits) {
+                const bytes = bits / 8;
+                let counter = 0;
+                const smallPrimes = [3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n,43n,47n,53n,59n,61n,67n,71n,73n,79n,83n,89n,97n,101n,103n,107n,109n,113n,127n,131n,137n,139n,149n,151n,157n,163n,167n,173n,179n,181n,191n,193n,197n,199n,211n,223n,227n,229n,233n,239n,241n,251n];
+                const modPow = (base, exp, mod) => {
+                  let res = 1n;
+                  base %= mod;
+                  while (exp > 0n) {
+                    if (exp & 1n) res = (res * base) % mod;
+                    exp >>= 1n;
+                    base = (base * base) % mod;
+                  }
+                  return res;
+                };
+                const isProbablePrime = (n) => {
+                  for (const sp of smallPrimes) {
+                    if (n % sp === 0n) return false;
+                  }
+                  let d = n - 1n;
+                  let r = 0;
+                  while ((d & 1n) === 0n) { d >>= 1n; r += 1; }
+                  for (const a of [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n]) {
+                    let x = modPow(a, d, n);
+                    if (x === 1n || x === n - 1n) continue;
+                    let composite = true;
+                    for (let i = 1; i < r; i += 1) {
+                      x = (x * x) % n;
+                      if (x === n - 1n) { composite = false; break; }
+                    }
+                    if (composite) return false;
+                  }
+                  return true;
+                };
+                while (true) {
+                  const buf = Buffer.alloc(bytes);
+                  for (let off = 0; off < bytes; off += 32) {
+                    const h = crypto.createHmac('sha256', seed).update(`${label}:${counter}:${off}`).digest();
+                    h.copy(buf, off, 0, Math.min(32, bytes - off));
+                  }
+                  counter += 1;
+                  buf[0] |= 0xc0;
+                  buf[bytes - 1] |= 0x01;
+                  const candidate = BigInt('0x' + buf.toString('hex'));
+                  if ((candidate - 1n) % 65537n === 0n) continue;
+                  if (isProbablePrime(candidate)) return candidate;
+                }
+              }
+              function modInv(a, m) {
+                let [old_r, r] = [a, m];
+                let [old_s, s] = [1n, 0n];
+                while (r !== 0n) {
+                  const q = old_r / r;
+                  [old_r, r] = [r, old_r - q * r];
+                  [old_s, s] = [s, old_s - q * s];
+                }
+                return ((old_s % m) + m) % m;
+              }
+              function bigIntToB64u(n, byteLen) {
+                let hex = n.toString(16);
+                if (hex.length % 2) hex = '0' + hex;
+                let buf = Buffer.from(hex, 'hex');
+                if (byteLen && buf.length < byteLen) {
+                  const pad = Buffer.alloc(byteLen);
+                  buf.copy(pad, byteLen - buf.length);
+                  buf = pad;
+                }
+                return buf.toString('base64url');
+              }
+
+              const seed = crypto.createHash('sha256').update(`${process.env.ASC_API_KEY_P8}:plinglist-mac-installer-v1`).digest();
+              const p = derivePrime(seed, 'p', 1024);
+              const q = derivePrime(seed, 'q', 1024);
+              const n = p * q;
+              const e = 65537n;
+              const d = modInv(e, (p - 1n) * (q - 1n));
+              const privKey = crypto.createPrivateKey({
+                key: {
+                  kty: 'RSA',
+                  n: bigIntToB64u(n, 256),
+                  e: bigIntToB64u(e),
+                  d: bigIntToB64u(d, 256),
+                  p: bigIntToB64u(p, 128),
+                  q: bigIntToB64u(q, 128),
+                  dp: bigIntToB64u(d % (p - 1n), 128),
+                  dq: bigIntToB64u(d % (q - 1n), 128),
+                  qi: bigIntToB64u(modInv(q, p), 128),
+                },
+                format: 'jwk',
+              });
+              const expectedSpki = crypto.createPublicKey(privKey).export({ type: 'spki', format: 'der' });
+
+              const tmp = process.env.RUNNER_TEMP;
+              const keyPath = path.join(tmp, 'mac_installer.key');
+              const csrPath = path.join(tmp, 'mac_installer.csr');
+              const cerPath = path.join(tmp, 'mac_installer.cer');
+              const pemPath = path.join(tmp, 'mac_installer.pem');
+              const p12Path = path.join(tmp, 'mac_installer.p12');
+              fs.writeFileSync(keyPath, privKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+
+              const existingInstRes = await asc('GET', '/certificates?filter[certificateType]=MAC_INSTALLER_DISTRIBUTION');
+              let installerCert = (existingInstRes.data || []).find((c) => {
+                try {
+                  const der = Buffer.from(c.attributes.certificateContent, 'base64');
+                  const spki = new crypto.X509Certificate(der).publicKey.export({ type: 'spki', format: 'der' });
+                  return spki.equals(expectedSpki);
+                } catch {
+                  return false;
+                }
+              });
+
+              if (installerCert) {
+                console.log(`Reusing persistent Mac Installer Distribution certificate: ${installerCert.id}`);
+              } else {
+                execFileSync('openssl', ['req', '-new', '-key', keyPath, '-out', csrPath, '-subj', '/CN=Plinglist CI Mac Installer']);
+                const createdInst = await asc('POST', '/certificates', {
+                  data: {
+                    type: 'certificates',
+                    attributes: {
+                      csrContent: fs.readFileSync(csrPath, 'utf8'),
+                      certificateType: 'MAC_INSTALLER_DISTRIBUTION',
+                    },
+                  },
+                });
+                installerCert = createdInst.data;
+                console.log(`Created persistent Mac Installer Distribution certificate: ${installerCert.id}`);
+              }
+
+              const certDer = Buffer.from(installerCert.attributes.certificateContent, 'base64');
+              const x509 = new crypto.X509Certificate(certDer);
+              const certSha1 = x509.fingerprint.replace(/:/g, '').toUpperCase();
+              const cnLine = x509.subject.split('\n').find((line) => line.startsWith('CN='));
+              const certCn = cnLine ? cnLine.slice(3).trim() : '3rd Party Mac Developer Installer';
+
+              fs.writeFileSync(cerPath, certDer);
+              execFileSync('openssl', ['x509', '-inform', 'DER', '-in', cerPath, '-out', pemPath]);
+              try {
+                execFileSync('openssl', [
+                  'pkcs12', '-export', '-certpbe', 'PBE-SHA1-3DES', '-keypbe', 'PBE-SHA1-3DES', '-macalg', 'sha1',
+                  '-out', p12Path, '-inkey', keyPath, '-in', pemPath, '-passout', `pass:${process.env.KEYCHAIN_PASS}`,
+                ]);
+              } catch {
+                execFileSync('openssl', [
+                  'pkcs12', '-export', '-out', p12Path, '-inkey', keyPath, '-in', pemPath,
+                  '-passout', `pass:${process.env.KEYCHAIN_PASS}`,
+                ]);
+              }
+              execFileSync('security', [
+                'import', p12Path, '-P', process.env.KEYCHAIN_PASS, '-A', '-t', 'cert', '-f', 'pkcs12',
+                '-k', process.env.KEYCHAIN_PATH,
+              ]);
+              execFileSync('security', [
+                'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:,productsign:',
+                '-s', '-k', process.env.KEYCHAIN_PASS, process.env.KEYCHAIN_PATH,
+              ]);
+              fs.appendFileSync(
+                process.env.GITHUB_ENV,
+                `MAC_INSTALLER_CERT_CN=${certCn}\nMAC_INSTALLER_CERT_SHA1=${certSha1}\n`
+              );
+              console.log(`Mac Installer Distribution certificate ready: ${certCn} (${certSha1})`);
             }
           })().catch((err) => {
             console.error(`::error::${err.message}`);
@@ -509,13 +676,20 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>destination</key>
-            <string>upload</string>
+            <string>export</string>
             <key>teamID</key>
             <string>${APPLE_TEAM_ID}</string>
             <key>signingStyle</key>
-            <string>automatic</string>
-            <key>manageAppVersionAndBuildNumber</key>
-            <false/>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>${DIST_CERT_SHA1}</string>
+            <key>installerSigningCertificate</key>
+            <string>${MAC_INSTALLER_CERT_CN}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${APP_BUNDLE_ID}</key>
+              <string>${MAC_PROFILE_NAME}</string>
+            </dict>
           </dict>
           </plist>
           EOF
@@ -523,16 +697,21 @@ jobs:
             if ! xcodebuild -exportArchive \
               -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
               -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-macOS.plist" \
-              -exportPath "$RUNNER_TEMP/export-macos" \
-              -allowProvisioningUpdates \
-              -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-              -authenticationKeyID "${ASC_KEY_ID}" \
-              -authenticationKeyIssuerID "${ASC_ISSUER_ID}" > "$RUNNER_TEMP/mac-export.log" 2>&1; then
-              tail -n 60 "$RUNNER_TEMP/mac-export.log"
-              ERR_LINE=$(grep -m1 "error:" "$RUNNER_TEMP/mac-export.log" || echo "macOS xcodebuild exportArchive failed")
-              echo "::error::${ERR_LINE}"
-              exit 1
+              -exportPath "$RUNNER_TEMP/export-macos" > "$RUNNER_TEMP/mac-export.log" 2>&1; then
+              echo "::warning::xcodebuild -exportArchive failed; falling back to direct productbuild .pkg packaging:"
+              tail -n 30 "$RUNNER_TEMP/mac-export.log"
+              mkdir -p "$RUNNER_TEMP/export-macos"
+              APP_BUNDLE=$(ls -d "$RUNNER_TEMP/Plinglist-macOS.xcarchive/Products/Applications/"*.app | head -n 1)
+              productbuild \
+                --component "$APP_BUNDLE" /Applications \
+                --sign "$MAC_INSTALLER_CERT_CN" \
+                "$RUNNER_TEMP/export-macos/Plinglist.pkg"
             fi
+
+            PKG_FILE=$(ls "$RUNNER_TEMP"/export-macos/*.pkg | head -n 1)
+            mkdir -p ~/.appstoreconnect/private_keys
+            cp "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" ~/.appstoreconnect/private_keys/
+            xcrun altool --upload-app -f "$PKG_FILE" -t macos --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
           else
             xcodebuild archive \
               "$CONTAINER_FLAG" "$CONTAINER_NAME" \
@@ -561,4 +740,4 @@ jobs:
       - name: Cleanup Keys
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/dist-re.p12" "$RUNNER_TEMP/dist.pem" ~/.appstoreconnect/private_keys
+          rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/dist-re.p12" "$RUNNER_TEMP/dist.pem" "$RUNNER_TEMP"/mac_installer.* ~/.appstoreconnect/private_keys
