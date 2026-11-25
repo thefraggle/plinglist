@@ -2,6 +2,9 @@
   "appId": "de.goork.plinglist",
   "appName": "Plinglist",
   "webDir": "app/dist",
+  "includePlugins": [
+    "@capacitor/app"
+  ],
   "ios": {
     "contentInset": "never",
     "scheme": "Plinglist"

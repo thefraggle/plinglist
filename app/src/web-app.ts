@@ -1712,9 +1712,29 @@ function initApp(): void {
       .catch(() => undefined);
   }
 
+  let lastHandledDeepLinkUrl = '';
+  let lastHandledDeepLinkAt = 0;
+
+  function syncDialogKeyFieldsAfterDeepLink(): void {
+    const settingsSyncInput = document.getElementById(
+      'settingsSyncKeyInput',
+    ) as HTMLInputElement | null;
+    if (settingsSyncInput) settingsSyncInput.value = store.syncKey;
+    const shareSyncKeyEl = document.getElementById('shareSyncKeyCode');
+    if (shareSyncKeyEl) shareSyncKeyEl.textContent = store.syncKey;
+    if (settingsDialog.open) void closeTopLayer(settingsDialog);
+    if (shareDialog.open) void closeTopLayer(shareDialog);
+  }
+
   async function handleIncomingDeepLinkUrl(rawUrl: string): Promise<void> {
     const trimmed = rawUrl.trim();
     if (!trimmed) return;
+    const nowMs = Date.now();
+    if (trimmed === lastHandledDeepLinkUrl && nowMs - lastHandledDeepLinkAt < 3000) {
+      return;
+    }
+    lastHandledDeepLinkUrl = trimmed;
+    lastHandledDeepLinkAt = nowMs;
     let parsed: URL;
     try {
       parsed = new URL(trimmed);
@@ -1734,6 +1754,7 @@ function initApp(): void {
         await store.syncWithServer();
         selectBestViewAfterPairing();
         hasSyncedOnce = true;
+        syncDialogKeyFieldsAfterDeepLink();
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
         render();
@@ -1752,6 +1773,7 @@ function initApp(): void {
         hasSyncedOnce = true;
         activeView = 'lists';
         activeListId = joinedList.id;
+        syncDialogKeyFieldsAfterDeepLink();
         trackDiagnostic('list_joined');
         showToast(`${joinedList.title} (${t(store.locale, 'list.sharedBadge')})`);
         render();
@@ -1848,6 +1870,14 @@ function initApp(): void {
       }
     } catch {
       // Ignore platforms where App.getLaunchUrl is unavailable
+    }
+
+    const nativeLaunchWin = window as { __PLINGLIST_LAUNCH_URL__?: string };
+    const bootLaunchUrl = nativeLaunchWin.__PLINGLIST_LAUNCH_URL__;
+    if (typeof bootLaunchUrl === 'string' && bootLaunchUrl.trim()) {
+      delete nativeLaunchWin.__PLINGLIST_LAUNCH_URL__;
+      await handleIncomingDeepLinkUrl(bootLaunchUrl);
+      didStartupSync = true;
     }
 
     const joinToken = params.get('join');

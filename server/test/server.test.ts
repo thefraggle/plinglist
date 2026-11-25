@@ -788,6 +788,7 @@ test('server serves .well-known deep-link manifests and dynamic Open Graph meta 
     assert.equal(pairRes.status, 200);
     assert.equal(pairRes.headers.get('x-robots-tag'), 'noindex, nofollow');
     const pairHtml = await pairRes.text();
+    assert.match(pairHtml, /<title>Plinglist — Pling\. Done\.<\/title>/);
     assert.match(pairHtml, /og:title" content="Gerät mit Plinglist koppeln — Pling\. Done\."/);
     assert.match(pairHtml, /<meta name="robots" content="noindex, nofollow" \/>/);
   } finally {

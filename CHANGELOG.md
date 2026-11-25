@@ -2,6 +2,18 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.23] - 2026-11-25
+
+### Deutsch
+- Sofortige Aktualisierung abgehakter Aufgaben auf allen gekoppelten Geräten ohne Neuladen.
+- Zuverlässigere Übernahme beim Antippen von Kopplungslinks direkt in die App.
+- Einheitlicher App-Seitentitel auch beim Öffnen von Kopplungs- und Einladungslinks.
+
+### English
+- Instant updates for completed tasks across all paired devices without needing to reload.
+- More reliable handoff when tapping pairing links directly into the app.
+- Consistent app page title when opening pairing and invite links.
+
 ## [0.1.22] - 2026-11-25
 
 ### Deutsch

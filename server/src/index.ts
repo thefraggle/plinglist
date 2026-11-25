@@ -89,7 +89,6 @@ async function renderDynamicIndexHtml(
   const safeImg = escapeHtml(ogImage);
 
   let html = rawHtml
-    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`)
     .replace(/<meta\s+name="description"[^>]*>/i, `<meta name="description" content="${safeDesc}" />`)
     .replace(/<meta\s+property="og:title"[^>]*>/i, `<meta property="og:title" content="${safeTitle}" />`)
     .replace(

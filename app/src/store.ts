@@ -879,8 +879,8 @@ export class PlinglistStore {
         this.lists[index] = mergeListLww(this.lists[index], incomingList);
       } else {
         this.lists.push(incomingList);
-        pulledLists += 1;
       }
+      pulledLists += 1;
     }
 
     for (const incomingTask of response.serverTasks) {
@@ -890,8 +890,8 @@ export class PlinglistStore {
         this.tasks[index] = mergeTaskLww(this.tasks[index], incomingTask);
       } else {
         this.tasks.unshift(incomingTask);
-        pulledTasks += 1;
       }
+      pulledTasks += 1;
     }
 
     let revokedLists = 0;

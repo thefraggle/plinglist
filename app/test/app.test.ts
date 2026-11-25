@@ -996,6 +996,16 @@ test('two-window pairing flow syncs second window tasks back to window 1 live an
     assert.equal(liveSync.synced, true);
     assert.ok(window1.tasks.some((t) => t.title === 'zwei'));
 
+    // Checking off "zwei" in Window 2 reports pulledTasks > 0 in Window 1 without requiring reload
+    const zweiTask = window2.tasks.find((t) => t.title === 'zwei')!;
+    window2.toggleTaskCompleted(zweiTask.id, '2026-11-25');
+    assert.equal((await window2.syncWithServer()).synced, true);
+
+    const completionSync = await window1.syncWithServer();
+    assert.equal(completionSync.synced, true);
+    assert.ok(completionSync.pulledTasks >= 1);
+    assert.equal(window1.tasks.find((t) => t.id === zweiTask.id)?.completed, true);
+
     // Reloaded Window 1 (cursorHlc persisted before "zwei", lastPushedHlc null) also pulls "zwei"
     const window1ReloadedStorage = createMemoryStorage();
     window1ReloadedStorage.setItem('plinglist.local.v1', snapshotBeforeSecondTask);

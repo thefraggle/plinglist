@@ -219,11 +219,76 @@ jobs:
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="plinglist.app" android:path="/" />
-                <data android:scheme="https" android:host="plinglist.app" android:pathPrefix="/join" />
+                <data android:scheme="https" android:host="plinglist.app" />
             </intent-filter>`;
               manifest = manifest.replace('</activity>', `${deepLinkFilters}\n        </activity>`);
               fs.writeFileSync(manifestPath, manifest);
+            }
+
+            const mainActivityPath = 'android/app/src/main/java/de/goork/plinglist/MainActivity.java';
+            if (fs.existsSync(mainActivityPath)) {
+              fs.writeFileSync(
+                mainActivityPath,
+                `package de.goork.plinglist;
+
+import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
+import android.webkit.WebView;
+import com.getcapacitor.BridgeActivity;
+import org.json.JSONObject;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onResume() {
+        super.onResume();
+        deliverPlinglistDeepLink(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        deliverPlinglistDeepLink(intent);
+    }
+
+    private void deliverPlinglistDeepLink(Intent intent) {
+        if (intent == null) return;
+        String url = intent.getDataString();
+        if (url == null || url.isEmpty()) return;
+        boolean matches =
+            url.startsWith("plinglist://") ||
+            url.contains("pair=") ||
+            url.contains("join=") ||
+            url.contains("key=") ||
+            url.contains("token=");
+        if (!matches) return;
+
+        // Consume once so resume/orientation changes do not replay the deep link.
+        intent.setData(null);
+
+        final String quotedUrl = JSONObject.quote(url);
+        final String js =
+            "(function(){try{" +
+            "var u=" + quotedUrl + ";" +
+            "window.__PLINGLIST_LAUNCH_URL__=u;" +
+            "window.dispatchEvent(new CustomEvent('plinglist:open-url',{detail:{url:u}}));" +
+            "}catch(_e){}})();";
+
+        final Handler handler = new Handler(Looper.getMainLooper());
+        Runnable evalTask = () -> {
+            if (getBridge() == null) return;
+            WebView webView = getBridge().getWebView();
+            if (webView != null) {
+                webView.evaluateJavascript(js, null);
+            }
+        };
+        handler.post(evalTask);
+        handler.postDelayed(evalTask, 400);
+    }
+}
+`,
+              );
             }
           })().catch((err) => {
             console.error(`::error::${err.message}`);
