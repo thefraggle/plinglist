@@ -314,6 +314,36 @@ function initApp(): void {
     }
   });
   sidebarBackdrop.addEventListener('click', closeMobileDrawer);
+  let drawerSwipeStartX: number | null = null;
+  let drawerSwipeStartY: number | null = null;
+  const onDrawerTouchStart = (event: TouchEvent): void => {
+    if (!sidebar.classList.contains('is-open') || event.touches.length !== 1) return;
+    drawerSwipeStartX = event.touches[0].clientX;
+    drawerSwipeStartY = event.touches[0].clientY;
+  };
+  const onDrawerTouchEnd = (event: TouchEvent): void => {
+    if (
+      drawerSwipeStartX === null ||
+      drawerSwipeStartY === null ||
+      !sidebar.classList.contains('is-open') ||
+      event.changedTouches.length !== 1
+    ) {
+      drawerSwipeStartX = null;
+      drawerSwipeStartY = null;
+      return;
+    }
+    const deltaX = event.changedTouches[0].clientX - drawerSwipeStartX;
+    const deltaY = event.changedTouches[0].clientY - drawerSwipeStartY;
+    drawerSwipeStartX = null;
+    drawerSwipeStartY = null;
+    if (deltaX < -45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+      closeMobileDrawer();
+    }
+  };
+  sidebar.addEventListener('touchstart', onDrawerTouchStart, { passive: true });
+  sidebar.addEventListener('touchend', onDrawerTouchEnd, { passive: true });
+  sidebarBackdrop.addEventListener('touchstart', onDrawerTouchStart, { passive: true });
+  sidebarBackdrop.addEventListener('touchend', onDrawerTouchEnd, { passive: true });
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && sidebar.classList.contains('is-open')) {
       closeMobileDrawer();
@@ -1790,6 +1820,29 @@ function initApp(): void {
     }
   });
 
+  function handleNativeBackNavigation(): boolean {
+    const openDialogOrder: HTMLDialogElement[] = [
+      confirmDeleteDialog,
+      renameListDialog,
+      taskDialog,
+      shareDialog,
+      importDialog,
+      settingsDialog,
+      helpDialog,
+      legalDialog,
+    ];
+    const topmostOpen = openDialogOrder.find((dlg) => dlg.open);
+    if (topmostOpen) {
+      void closeTopLayer(topmostOpen);
+      return true;
+    }
+    if (sidebar.classList.contains('is-open')) {
+      closeMobileDrawer();
+      return true;
+    }
+    return false;
+  }
+
   const capacitorAppPlugin = (
     window as {
       Capacitor?: {
@@ -1800,6 +1853,8 @@ function initApp(): void {
               cb: (data: { url?: string }) => void,
             ) => void;
             getLaunchUrl?: () => Promise<{ url?: string } | null | undefined>;
+            exitApp?: () => Promise<void> | void;
+            minimizeApp?: () => Promise<void> | void;
           };
         };
       };
@@ -1808,6 +1863,11 @@ function initApp(): void {
   capacitorAppPlugin?.addListener?.('appUrlOpen', (data) => {
     if (typeof data?.url === 'string') {
       void handleIncomingDeepLinkUrl(data.url);
+    }
+  });
+  capacitorAppPlugin?.addListener?.('backButton', () => {
+    if (!handleNativeBackNavigation()) {
+      void capacitorAppPlugin?.exitApp?.();
     }
   });
 

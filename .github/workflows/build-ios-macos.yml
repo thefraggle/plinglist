@@ -188,6 +188,70 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Plinglist" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.productivity" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$INFO_PLIST"
 
+          node - <<'EOF'
+          const fs = require('node:fs');
+          const appDelegatePath = 'ios/App/App/AppDelegate.swift';
+          if (fs.existsSync(appDelegatePath)) {
+            const swiftLines = [
+              'import UIKit',
+              'import Capacitor',
+              '',
+              '@UIApplicationMain',
+              'class AppDelegate: UIResponder, UIApplicationDelegate {',
+              '',
+              '    var window: UIWindow?',
+              '',
+              '    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {',
+              '        return true',
+              '    }',
+              '',
+              '    func applicationWillResignActive(_ application: UIApplication) {}',
+              '    func applicationDidEnterBackground(_ application: UIApplication) {}',
+              '    func applicationWillEnterForeground(_ application: UIApplication) {}',
+              '    func applicationDidBecomeActive(_ application: UIApplication) {}',
+              '    func applicationWillTerminate(_ application: UIApplication) {}',
+              '',
+              '    private func deliverPlinglistDeepLink(_ url: URL) {',
+              '        let raw = url.absoluteString',
+              '        let matches =',
+              '            raw.hasPrefix("plinglist://") ||',
+              '            raw.contains("pair=") ||',
+              '            raw.contains("join=") ||',
+              '            raw.contains("key=") ||',
+              '            raw.contains("token=")',
+              '        guard matches,',
+              '              let jsonData = try? JSONSerialization.data(withJSONObject: [raw], options: []),',
+              '              let jsonArray = String(data: jsonData, encoding: .utf8) else {',
+              '            return',
+              '        }',
+              '        let js = "(function(){try{var u=\\(jsonArray)[0];window.__PLINGLIST_LAUNCH_URL__=u;window.dispatchEvent(new CustomEvent(\'plinglist:open-url\',{detail:{url:u}}));}catch(_e){}})();"',
+              '        let evalBlock = { [weak self] in',
+              '            if let bridgeVC = self?.window?.rootViewController as? CAPBridgeViewController {',
+              '                bridgeVC.webView?.evaluateJavaScript(js, completionHandler: nil)',
+              '            }',
+              '        }',
+              '        DispatchQueue.main.async(execute: evalBlock)',
+              '        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: evalBlock)',
+              '    }',
+              '',
+              '    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {',
+              '        deliverPlinglistDeepLink(url)',
+              '        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)',
+              '    }',
+              '',
+              '    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {',
+              '        if userActivity.activityType == NSUserActivityTypeBrowsingWeb,',
+              '           let url = userActivity.webpageURL {',
+              '            deliverPlinglistDeepLink(url)',
+              '        }',
+              '        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)',
+              '    }',
+              '}',
+            ];
+            fs.writeFileSync(appDelegatePath, swiftLines.join('\n') + '\n');
+          }
+          EOF
+
       - name: Select Latest Xcode
         if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
