@@ -34,7 +34,7 @@ permissions:
 jobs:
   build-apple:
     name: Archive & Upload (${{ inputs.target_platform }})
-    runs-on: macos-15
+    runs-on: ${{ inputs.target_platform == 'metadata-only' && 'ubuntu-latest' || 'macos-15' }}
     env:
       APP_BUNDLE_ID: de.goork.plinglist
       APPLE_TEAM_ID: 296C735W8C
