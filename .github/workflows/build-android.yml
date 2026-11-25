@@ -15,7 +15,7 @@ on:
       version_code:
         description: 'Android versionCode integer (must strictly increase for every Google Play upload)'
         required: true
-        default: '1'
+        default: '2'
         type: string
       play_track:
         description: 'Target Google Play track'
@@ -89,6 +89,10 @@ jobs:
         env:
           VERSION_CODE: ${{ inputs.version_code }}
         run: |
+          if [ ! -d "$ANDROID_HOME/platforms/android-36" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null || true
+          fi
+
           npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
           npx cap add android
           if [ -d cloud/scripts ]; then
@@ -105,16 +109,30 @@ jobs:
           const varsPath = 'android/variables.gradle';
           if (fs.existsSync(varsPath)) {
             let vars = fs.readFileSync(varsPath, 'utf8');
-            vars = vars.replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 24');
+            vars = vars.replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 26');
+            vars = vars.replace(/compileSdkVersion\s*=\s*\d+/g, 'compileSdkVersion = 36');
+            vars = vars.replace(/targetSdkVersion\s*=\s*\d+/g, 'targetSdkVersion = 36');
             fs.writeFileSync(varsPath, vars);
           }
 
           const gradlePath = 'android/app/build.gradle';
           let gradle = fs.readFileSync(gradlePath, 'utf8');
-          gradle = gradle.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 24');
+          gradle = gradle.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 26');
+          gradle = gradle.replace(/compileSdk\s+\d+/g, 'compileSdk 36');
+          gradle = gradle.replace(/compileSdkVersion\s+\d+/g, 'compileSdkVersion 36');
+          gradle = gradle.replace(/targetSdkVersion\s+\d+/g, 'targetSdkVersion 36');
           gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${process.env.VERSION_CODE}`);
           gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${process.env.APP_VERSION}"`);
           fs.writeFileSync(gradlePath, gradle);
+
+          const propsPath = 'android/gradle.properties';
+          if (fs.existsSync(propsPath)) {
+            let props = fs.readFileSync(propsPath, 'utf8');
+            if (!props.includes('android.suppressUnsupportedCompileSdk')) {
+              props += '\nandroid.suppressUnsupportedCompileSdk=36\n';
+              fs.writeFileSync(propsPath, props);
+            }
+          }
 
           const manifestPath = 'android/app/src/main/AndroidManifest.xml';
           let manifest = fs.readFileSync(manifestPath, 'utf8');
