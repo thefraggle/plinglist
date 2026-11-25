@@ -38,6 +38,80 @@ const API_CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function renderDynamicIndexHtml(
+  rawHtml: string,
+  requestUrl: URL,
+  config: ServerConfig,
+  repo: SyncRepository,
+): Promise<{ html: string; hasSensitiveQuery: boolean }> {
+  const joinToken = requestUrl.searchParams.get('join')?.trim() || '';
+  const pairKey = requestUrl.searchParams.get('pair')?.trim() || '';
+  const hasSensitiveQuery = Boolean(joinToken || pairKey);
+
+  let title = 'Plinglist — Pling. Done.';
+  let description =
+    'Pling. Done. – Die einfache To-Do- & Einkaufsliste, die bleibt. Sofort lokal speichern, offline nutzen und ohne Account per Link synchronisieren.';
+  let ogUrl = `${config.publicBaseUrl}/`;
+  const ogImage = `${config.publicBaseUrl}/og-image.png`;
+
+  if (joinToken) {
+    let listTitle = '';
+    try {
+      const sharedList = await repo.resolveInviteToken?.(joinToken);
+      listTitle = sharedList?.title?.trim() || '';
+    } catch {
+      listTitle = '';
+    }
+    title = listTitle
+      ? `Einladung zur Liste „${listTitle}“ — Plinglist`
+      : 'Geteilte Liste — Plinglist';
+    description =
+      'Pling. Done. – Gemeinsame To-Do- & Einkaufsliste öffnen (direkt in der Plinglist App oder im Browser, ohne Konto).';
+    ogUrl = `${config.publicBaseUrl}/?join=${encodeURIComponent(joinToken)}`;
+  } else if (pairKey) {
+    title = 'Gerät mit Plinglist koppeln — Pling. Done.';
+    description =
+      'Öffne diesen Link auf deinem Smartphone, Tablet oder Computer, um deine Plinglist-Aufgaben über deinen privaten Sync-Key zu koppeln.';
+    ogUrl = `${config.publicBaseUrl}/?pair=${encodeURIComponent(pairKey)}`;
+  }
+
+  const safeTitle = escapeHtml(title);
+  const safeDesc = escapeHtml(description);
+  const safeUrl = escapeHtml(ogUrl);
+  const safeImg = escapeHtml(ogImage);
+
+  let html = rawHtml
+    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`)
+    .replace(/<meta\s+name="description"[^>]*>/i, `<meta name="description" content="${safeDesc}" />`)
+    .replace(/<meta\s+property="og:title"[^>]*>/i, `<meta property="og:title" content="${safeTitle}" />`)
+    .replace(
+      /<meta\s+property="og:description"[^>]*>/i,
+      `<meta property="og:description" content="${safeDesc}" />`,
+    )
+    .replace(/<meta\s+property="og:url"[^>]*>/i, `<meta property="og:url" content="${safeUrl}" />`)
+    .replace(/<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${safeImg}" />`)
+    .replace(/<meta\s+name="twitter:title"[^>]*>/i, `<meta name="twitter:title" content="${safeTitle}" />`)
+    .replace(
+      /<meta\s+name="twitter:description"[^>]*>/i,
+      `<meta name="twitter:description" content="${safeDesc}" />`,
+    )
+    .replace(/<meta\s+name="twitter:image"[^>]*>/i, `<meta name="twitter:image" content="${safeImg}" />`);
+
+  if (hasSensitiveQuery && !html.includes('name="robots"')) {
+    html = html.replace('</head>', '    <meta name="robots" content="noindex, nofollow" />\n  </head>');
+  }
+
+  return { html, hasSensitiveQuery };
+}
+
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -369,6 +443,38 @@ export function createServerApp(
       return;
     }
 
+    if (method === 'GET' && pathname === '/.well-known/apple-app-site-association') {
+      sendJson(res, 200, {
+        applinks: {
+          details: [
+            {
+              appIDs: [`${config.appleTeamId}.${config.appBundleId}`],
+              components: [
+                { '/': '/join/*' },
+                { '/': '/', '?': { join: '?*' } },
+                { '/': '/', '?': { pair: '?*' } },
+              ],
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/.well-known/assetlinks.json') {
+      sendJson(res, 200, [
+        {
+          relation: ['delegate_permission/common.handle_all_urls'],
+          target: {
+            namespace: 'android_app',
+            package_name: config.appBundleId,
+            sha256_cert_fingerprints: config.androidCertSha256Fingerprints,
+          },
+        },
+      ]);
+      return;
+    }
+
     if (method === 'GET' || method === 'HEAD') {
       const normalizedPath = pathname === '/' || pathname === '/index.html' ? '/index.html' : pathname;
       const safeRelPath = path.posix.normalize(normalizedPath).replace(/^\/+/, '');
@@ -383,6 +489,23 @@ export function createServerApp(
       ) {
         const ext = path.extname(targetFile);
         const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
+        if (normalizedPath === '/index.html' && method === 'GET') {
+          const rawHtml = fs.readFileSync(targetFile, 'utf8');
+          const { html, hasSensitiveQuery } = await renderDynamicIndexHtml(
+            rawHtml,
+            requestUrl,
+            config,
+            repo,
+          );
+          res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            'Content-Type': contentType,
+            'Cache-Control': hasSensitiveQuery ? 'no-cache, no-store' : 'no-cache',
+            ...(hasSensitiveQuery ? { 'X-Robots-Tag': 'noindex, nofollow' } : {}),
+          });
+          res.end(html);
+          return;
+        }
         const isMutableEntry =
           ext === '.html' || path.basename(targetFile) === 'sw.js' || ext === '.webmanifest';
         res.writeHead(200, {

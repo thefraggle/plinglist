@@ -77,7 +77,7 @@ jobs:
       - name: Initialize & Sync Capacitor 7 iOS Project (iOS + Mac Catalyst)
         if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/app@7
           npx cap add ios
           if [ -d cloud/scripts ]; then
             bash cloud/scripts/apply-brand-overlay.sh || true
@@ -270,13 +270,42 @@ jobs:
             return text ? JSON.parse(text) : {};
           }
 
-          async function ensureProfile(bundleResourceId, certId, profileType, displayName, envPrefix) {
+          async function ensureAssociatedDomainsCapability(bundleResourceId) {
+            try {
+              const capsRes = await asc('GET', `/bundleIds/${bundleResourceId}/bundleIdCapabilities`);
+              const alreadyEnabled = (capsRes.data || []).some(
+                (c) => c.attributes?.capabilityType === 'ASSOCIATED_DOMAINS',
+              );
+              if (!alreadyEnabled) {
+                await asc('POST', '/bundleIdCapabilities', {
+                  data: {
+                    type: 'bundleIdCapabilities',
+                    attributes: { capabilityType: 'ASSOCIATED_DOMAINS' },
+                    relationships: {
+                      bundleId: { data: { type: 'bundleIds', id: bundleResourceId } },
+                    },
+                  },
+                });
+                console.log('Enabled ASSOCIATED_DOMAINS capability on bundle ID');
+              }
+              return true;
+            } catch (err) {
+              console.warn(`Notice: ASSOCIATED_DOMAINS check/enable returned ${err.message}`);
+              return false;
+            }
+          }
+
+          async function ensureProfile(bundleResourceId, certId, profileType, displayName, envPrefix, requireAssociatedDomains) {
             const existing = await asc('GET', `/profiles?filter[profileType]=${profileType}&include=bundleId`);
-            const match = (existing.data || []).find(
-              (p) =>
-                p.attributes?.profileState === 'ACTIVE' &&
-                p.relationships?.bundleId?.data?.id === bundleResourceId
-            );
+            const match = (existing.data || []).find((p) => {
+              if (p.attributes?.profileState !== 'ACTIVE') return false;
+              if (p.relationships?.bundleId?.data?.id !== bundleResourceId) return false;
+              if (requireAssociatedDomains) {
+                const decoded = Buffer.from(p.attributes.profileContent || '', 'base64').toString('latin1');
+                return decoded.includes('com.apple.developer.associated-domains');
+              }
+              return true;
+            });
             let profile = match;
             if (!profile) {
               const created = await asc('POST', '/profiles', {
@@ -323,12 +352,15 @@ jobs:
             }
             console.log(`Using ASC certificate ${cert.id} (serial ${cert.attributes?.serialNumber})`);
 
+            const hasAssocDomains = await ensureAssociatedDomainsCapability(bundle.id);
+            fs.appendFileSync(process.env.GITHUB_ENV, `HAS_ASSOCIATED_DOMAINS=${hasAssocDomains}\n`);
+
             const target = process.env.TARGET_PLATFORM;
             if ((target === 'all' || target === 'ios') && !process.env.IOS_PROFILE_NAME) {
-              await ensureProfile(bundle.id, cert.id, 'IOS_APP_STORE', 'Plinglist iOS AppStore', 'IOS');
+              await ensureProfile(bundle.id, cert.id, 'IOS_APP_STORE', 'Plinglist iOS AppStore', 'IOS', hasAssocDomains);
             }
             if (target === 'all' || target === 'macos') {
-              await ensureProfile(bundle.id, cert.id, 'MAC_CATALYST_APP_STORE', 'Plinglist Mac Catalyst AppStore', 'MAC');
+              await ensureProfile(bundle.id, cert.id, 'MAC_CATALYST_APP_STORE', 'Plinglist Mac Catalyst AppStore', 'MAC', hasAssocDomains);
 
               // Derive a persistent deterministic RSA-2048 key so CI reuses the same
               // MAC_INSTALLER_DISTRIBUTION certificate across runs without ever revoking it.
@@ -515,7 +547,7 @@ jobs:
           echo "Using $CONTAINER_FLAG $CONTAINER_NAME"
 
           if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
-            IOS_PROFILE_NAME="$IOS_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" node - <<'EOF'
+            IOS_PROFILE_NAME="$IOS_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" HAS_ASSOCIATED_DOMAINS="${HAS_ASSOCIATED_DOMAINS:-false}" node - <<'EOF'
           const fs = require('node:fs');
           const pbxPath = 'App.xcodeproj/project.pbxproj';
           let pbx = fs.readFileSync(pbxPath, 'utf8');
@@ -528,6 +560,19 @@ jobs:
               /PRODUCT_BUNDLE_IDENTIFIER = de\.goork\.plinglist;/g,
               `CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "${process.env.IOS_PROFILE_NAME}";\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
             );
+          }
+          if (process.env.HAS_ASSOCIATED_DOMAINS === 'true') {
+            const entitlementsPath = 'App/App.entitlements';
+            fs.writeFileSync(
+              entitlementsPath,
+              `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.developer.associated-domains</key>\n\t<array>\n\t\t<string>applinks:plinglist.app</string>\n\t</array>\n</dict>\n</plist>\n`
+            );
+            if (!pbx.includes('CODE_SIGN_ENTITLEMENTS')) {
+              pbx = pbx.replace(
+                /PRODUCT_BUNDLE_IDENTIFIER = de\.goork\.plinglist;/g,
+                `CODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
+              );
+            }
           }
           fs.writeFileSync(pbxPath, pbx);
           EOF
@@ -609,7 +654,7 @@ jobs:
           fi
 
           if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
-            MAC_PROFILE_NAME="$MAC_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" node - <<'EOF'
+            MAC_PROFILE_NAME="$MAC_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" HAS_ASSOCIATED_DOMAINS="${HAS_ASSOCIATED_DOMAINS:-false}" node - <<'EOF'
           const fs = require('node:fs');
           const teamId = process.env.APPLE_TEAM_ID;
           const pbxPath = 'App.xcodeproj/project.pbxproj';
@@ -626,12 +671,14 @@ jobs:
             );
           }
             const entitlementsPath = 'App/App.entitlements';
-            if (!fs.existsSync(entitlementsPath)) {
-              fs.writeFileSync(
-                entitlementsPath,
-                `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.security.app-sandbox</key>\n\t<true/>\n\t<key>com.apple.security.network.client</key>\n\t<true/>\n</dict>\n</plist>\n`
-              );
-            }
+            const assocDomainsEntry =
+              process.env.HAS_ASSOCIATED_DOMAINS === 'true'
+                ? `\t<key>com.apple.developer.associated-domains</key>\n\t<array>\n\t\t<string>applinks:plinglist.app</string>\n\t</array>\n`
+                : '';
+            fs.writeFileSync(
+              entitlementsPath,
+              `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.security.app-sandbox</key>\n\t<true/>\n\t<key>com.apple.security.network.client</key>\n\t<true/>\n${assocDomainsEntry}</dict>\n</plist>\n`
+            );
             if (!pbx.includes('CODE_SIGN_ENTITLEMENTS')) {
               pbx = pbx.replace(
                 /PRODUCT_BUNDLE_IDENTIFIER = de\.goork\.plinglist;/g,

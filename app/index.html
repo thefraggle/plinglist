@@ -9,6 +9,28 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Plinglist" />
     <title>Plinglist — Pling. Done.</title>
+    <meta
+      name="description"
+      content="Pling. Done. – Die einfache To-Do- & Einkaufsliste, die bleibt. Sofort lokal speichern, offline nutzen und ohne Account per Link synchronisieren."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Plinglist" />
+    <meta property="og:title" content="Plinglist — Pling. Done." />
+    <meta
+      property="og:description"
+      content="Pling. Done. – Die einfache To-Do- & Einkaufsliste, die bleibt. Sofort lokal speichern, offline nutzen und ohne Account per Link synchronisieren."
+    />
+    <meta property="og:url" content="https://plinglist.app/" />
+    <meta property="og:image" content="https://plinglist.app/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Plinglist — Pling. Done." />
+    <meta
+      name="twitter:description"
+      content="Pling. Done. – Die einfache To-Do- & Einkaufsliste, die bleibt. Sofort lokal speichern, offline nutzen und ohne Account per Link synchronisieren."
+    />
+    <meta name="twitter:image" content="https://plinglist.app/og-image.png" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./favicon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -130,6 +152,23 @@
       </aside>
 
       <main class="main-view">
+        <div id="nativeAppHandoffBanner" class="app-handoff-banner" hidden>
+          <span id="nativeAppHandoffText" class="app-handoff-text"></span>
+          <div class="app-handoff-actions">
+            <a id="nativeAppHandoffLink" href="plinglist://" class="btn-primary btn-compact" data-i18n="handoff.openApp">
+              In der App öffnen
+            </a>
+            <button
+              type="button"
+              id="closeAppHandoffBtn"
+              class="btn-ghost btn-compact"
+              data-i18n-aria="handoff.dismiss"
+              aria-label="Hinweis schließen"
+            >
+              ×
+            </button>
+          </div>
+        </div>
         <header class="view-header">
           <div class="header-title-group">
             <button

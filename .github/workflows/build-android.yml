@@ -93,7 +93,7 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null || true
           fi
 
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7
           npx cap add android
           if [ -d cloud/scripts ]; then
             bash cloud/scripts/apply-brand-overlay.sh || true
@@ -137,14 +137,21 @@ jobs:
           const manifestPath = 'android/app/src/main/AndroidManifest.xml';
           let manifest = fs.readFileSync(manifestPath, 'utf8');
           if (!manifest.includes('android:scheme="plinglist"')) {
-            const deepLinkFilter = `
+            const deepLinkFilters = `
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="plinglist" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="plinglist.app" android:path="/" />
+                <data android:scheme="https" android:host="plinglist.app" android:pathPrefix="/join" />
             </intent-filter>`;
-            manifest = manifest.replace('</activity>', `${deepLinkFilter}\n        </activity>`);
+            manifest = manifest.replace('</activity>', `${deepLinkFilters}\n        </activity>`);
             fs.writeFileSync(manifestPath, manifest);
           }
           EOF
@@ -173,6 +180,8 @@ jobs:
               exit 1
             fi
             echo "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$KEYSTORE_PATH"
+            echo "Upload certificate fingerprint:"
+            keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>/dev/null | grep -m1 "SHA256:" || true
           elif [ "$TARGET_ACTION" = "apk-only" ]; then
             echo "No KEYSTORE_BASE64 secret configured; generating temporary test signing keystore for apk-only build."
             KEYSTORE_PASSWORD="plinglist-temp-pass"

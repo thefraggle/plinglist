@@ -706,3 +706,95 @@ test('HTTP server fails closed on empty webhook secret, validates sync payloads,
     repo.close();
   }
 });
+
+test('server serves .well-known deep-link manifests and dynamic Open Graph meta tags for ?join= and ?pair=', async () => {
+  const { createServerApp } = await import('../src/index.ts');
+  const { loadServerConfig } = await import('../src/config.ts');
+  const { SqliteSyncRepository } = await import('../src/sqlite-repo.ts');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plinglist-og-dist-'));
+  fs.writeFileSync(
+    path.join(tmpDir, 'index.html'),
+    [
+      '<!doctype html><html><head>',
+      '<title>Plinglist — Pling. Done.</title>',
+      '<meta name="description" content="Default Desc" />',
+      '<meta property="og:title" content="Default Title" />',
+      '<meta property="og:description" content="Default OG Desc" />',
+      '<meta property="og:url" content="https://plinglist.app/" />',
+      '<meta property="og:image" content="https://plinglist.app/og-image.png" />',
+      '<meta name="twitter:title" content="Default Twitter" />',
+      '<meta name="twitter:description" content="Default Twitter Desc" />',
+      '<meta name="twitter:image" content="https://plinglist.app/og-image.png" />',
+      '</head><body></body></html>',
+    ].join('\n'),
+  );
+
+  const repo = new SqliteSyncRepository(':memory:');
+  await repo.applyAndPullDeltas({
+    userId: 'u-owner',
+    syncKey: 'pling-ogtest-111111-222222-333333',
+    listIds: ['list-og'],
+    clientLists: [
+      {
+        id: 'list-og',
+        title: 'Einkauf <Wochenende> & "Party"',
+        shared: true,
+        inviteToken: 'inv-ogtoken1234567890abcd',
+        createdAt: '2026-11-25T10:00:00Z',
+        updatedAt: '2026-11-25T10:00:00Z',
+        deletedAt: null,
+        hlc: '001795600000000:00000:u-owner',
+      },
+    ],
+    clientTasks: [],
+  });
+
+  const config = loadServerConfig({
+    PUBLIC_BASE_URL: 'https://plinglist.app',
+    ANDROID_CERT_SHA256_FINGERPRINTS: 'AA:BB:CC:DD',
+  });
+  const server = createServerApp(config, repo, tmpDir);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+
+  try {
+    const aasaRes = await fetch(`${baseUrl}/.well-known/apple-app-site-association`);
+    assert.equal(aasaRes.status, 200);
+    const aasa = (await aasaRes.json()) as { applinks: { details: Array<{ appIDs: string[] }> } };
+    assert.deepEqual(aasa.applinks.details[0]?.appIDs, ['296C735W8C.de.goork.plinglist']);
+
+    const assetLinksRes = await fetch(`${baseUrl}/.well-known/assetlinks.json`);
+    assert.equal(assetLinksRes.status, 200);
+    const assetLinks = (await assetLinksRes.json()) as Array<{
+      target: { package_name: string; sha256_cert_fingerprints: string[] };
+    }>;
+    assert.equal(assetLinks[0]?.target.package_name, 'de.goork.plinglist');
+    assert.deepEqual(assetLinks[0]?.target.sha256_cert_fingerprints, ['AA:BB:CC:DD']);
+
+    const joinRes = await fetch(`${baseUrl}/?join=inv-ogtoken1234567890abcd`);
+    assert.equal(joinRes.status, 200);
+    assert.equal(joinRes.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const joinHtml = await joinRes.text();
+    assert.match(joinHtml, /og:title" content="Einladung zur Liste „Einkauf &lt;Wochenende&gt; &amp; &quot;Party&quot;“ — Plinglist"/);
+    assert.match(joinHtml, /og:image" content="https:\/\/plinglist\.app\/og-image\.png"/);
+    assert.match(joinHtml, /<meta name="robots" content="noindex, nofollow" \/>/);
+
+    const pairRes = await fetch(`${baseUrl}/?pair=pling-ogtest-111111-222222-333333`);
+    assert.equal(pairRes.status, 200);
+    assert.equal(pairRes.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const pairHtml = await pairRes.text();
+    assert.match(pairHtml, /og:title" content="Gerät mit Plinglist koppeln — Pling\. Done\."/);
+    assert.match(pairHtml, /<meta name="robots" content="noindex, nofollow" \/>/);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
