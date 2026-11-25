@@ -242,13 +242,6 @@ function initApp(): void {
   const mobileBarEl = document.querySelector<HTMLElement>('.mobile-tab-bar');
   const searchInput = document.getElementById('taskSearchInput') as HTMLInputElement | null;
   const clearSearchBtn = document.getElementById('clearSearchBtn') as HTMLButtonElement | null;
-  const nativeAppHandoffBanner = document.getElementById('nativeAppHandoffBanner') as HTMLElement | null;
-  const nativeAppHandoffText = document.getElementById('nativeAppHandoffText') as HTMLElement | null;
-  const nativeAppHandoffLink = document.getElementById('nativeAppHandoffLink') as HTMLAnchorElement | null;
-  const closeAppHandoffBtn = document.getElementById('closeAppHandoffBtn') as HTMLButtonElement | null;
-  closeAppHandoffBtn?.addEventListener('click', () => {
-    if (nativeAppHandoffBanner) nativeAppHandoffBanner.hidden = true;
-  });
   if (searchInput && searchQuery) {
     searchInput.value = searchQuery;
   }
@@ -1970,27 +1963,6 @@ function initApp(): void {
     }
   });
 
-  function showNativeAppHandoff(kind: 'pair' | 'join', value: string): void {
-    if (
-      isNativeShellOrigin() ||
-      !nativeAppHandoffBanner ||
-      !nativeAppHandoffText ||
-      !nativeAppHandoffLink
-    ) {
-      return;
-    }
-    nativeAppHandoffLink.href =
-      kind === 'pair'
-        ? `plinglist://pair?key=${encodeURIComponent(value)}`
-        : `plinglist://join?token=${encodeURIComponent(value)}`;
-    nativeAppHandoffText.textContent = t(
-      store.locale,
-      kind === 'pair' ? 'handoff.pairPrompt' : 'handoff.joinPrompt',
-    );
-    nativeAppHandoffLink.textContent = t(store.locale, 'handoff.openApp');
-    nativeAppHandoffBanner.hidden = false;
-  }
-
   async function handleJoinParamOnStartup(): Promise<void> {
     const params = new URLSearchParams(window.location.search);
     const legalParam = params.get('legal');
@@ -2001,7 +1973,6 @@ function initApp(): void {
     let didStartupSync = false;
     const pairKey = params.get('pair');
     if (pairKey) {
-      showNativeAppHandoff('pair', pairKey);
       params.delete('pair');
       const cleanQuery = params.toString();
       const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
@@ -2046,7 +2017,6 @@ function initApp(): void {
       }
       return;
     }
-    showNativeAppHandoff('join', joinToken);
     params.delete('join');
     const cleanQuery = params.toString();
     const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
