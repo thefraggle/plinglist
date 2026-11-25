@@ -1,0 +1,213 @@
+name: Build & Release Android (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_action:
+        description: 'Build & upload AAB + Play Store metadata, build APK only, or sync metadata/screenshots only'
+        required: true
+        default: 'build-and-upload'
+        type: choice
+        options:
+          - build-and-upload
+          - apk-only
+          - metadata-only
+      version_code:
+        description: 'Android versionCode integer (must strictly increase for every Google Play upload)'
+        required: true
+        default: '1'
+        type: string
+      play_track:
+        description: 'Target Google Play track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Android (${{ inputs.target_action }})
+    runs-on: ubuntu-latest
+    env:
+      PLAY_PACKAGE_NAME: de.goork.plinglist
+
+    steps:
+      - name: Checkout Plinglist
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout Private Cloud Overlay (optional)
+        env:
+          CLOUD_SSH_KEY: ${{ secrets.CLOUD_SSH_KEY }}
+        run: |
+          if [ -n "$CLOUD_SSH_KEY" ]; then
+            mkdir -p ~/.ssh
+            (umask 077 && echo "$CLOUD_SSH_KEY" > ~/.ssh/plinglist_cloud_key)
+            ssh-keyscan -p 2222 forgejo.goork.de >> ~/.ssh/known_hosts 2>/dev/null || true
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/plinglist_cloud_key -o IdentitiesOnly=yes" \
+              git clone ssh://git@forgejo.goork.de:2222/thefraggle/plinglist-cloud.git cloud || true
+            rm -f ~/.ssh/plinglist_cloud_key
+          else
+            echo "CLOUD_SSH_KEY not configured; continuing with open-core assets."
+          fi
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply Overlay (if present), Build & Test
+        run: |
+          if [ -d cloud/scripts ]; then
+            node cloud/scripts/generate-brand-icons.mjs || true
+            bash cloud/scripts/apply-brand-overlay.sh || true
+          fi
+          npm run build
+          npm test
+
+      - name: Setup Java JDK 21 (Temurin)
+        if: ${{ inputs.target_action != 'metadata-only' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Initialize & Sync Capacitor 7 Android Project
+        if: ${{ inputs.target_action != 'metadata-only' }}
+        env:
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          npx cap add android
+          if [ -d cloud/scripts ]; then
+            bash cloud/scripts/apply-brand-overlay.sh || true
+          fi
+          npx cap sync android
+
+          APP_VERSION=$(node -p "require('./package.json').version")
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+
+          APP_VERSION="$APP_VERSION" VERSION_CODE="$VERSION_CODE" node - <<'EOF'
+          const fs = require('node:fs');
+
+          const gradlePath = 'android/app/build.gradle';
+          let gradle = fs.readFileSync(gradlePath, 'utf8');
+          gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${process.env.VERSION_CODE}`);
+          gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${process.env.APP_VERSION}"`);
+          fs.writeFileSync(gradlePath, gradle);
+
+          const manifestPath = 'android/app/src/main/AndroidManifest.xml';
+          let manifest = fs.readFileSync(manifestPath, 'utf8');
+          if (!manifest.includes('android:scheme="plinglist"')) {
+            const deepLinkFilter = `
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="plinglist" />
+            </intent-filter>`;
+            manifest = manifest.replace('</activity>', `${deepLinkFilter}\n        </activity>`);
+            fs.writeFileSync(manifestPath, manifest);
+          }
+          EOF
+
+      - name: Build & Sign Android Release APK & AAB
+        if: ${{ inputs.target_action != 'metadata-only' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          TARGET_ACTION: ${{ inputs.target_action }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --no-daemon
+          cd ..
+
+          mkdir -p dist
+          KEYSTORE_PATH="$RUNNER_TEMP/plinglist-upload.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is set, but password/alias secret is missing!"
+              exit 1
+            fi
+            echo -n "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          elif [ "$TARGET_ACTION" = "apk-only" ]; then
+            echo "No ANDROID_KEYSTORE_BASE64 secret configured; generating temporary test signing keystore for apk-only build."
+            KEYSTORE_PASSWORD="plinglist-temp-pass"
+            KEY_PASSWORD="plinglist-temp-pass"
+            KEY_ALIAS="plinglist-temp"
+            keytool -genkeypair -v -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -keyalg RSA -keysize 2048 -validity 365 \
+              -dname "CN=Plinglist Test APK, O=Goork, C=DE"
+          else
+            echo "::error::Missing ANDROID_KEYSTORE_BASE64 secret required for Google Play release signing!"
+            exit 1
+          fi
+
+          RAW_AAB=$(find android/app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+          jarsigner -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            "$RAW_AAB" "$KEY_ALIAS"
+          cp "$RAW_AAB" "dist/Plinglist-v${APP_VERSION}.aab"
+
+          RAW_APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BUILD_TOOLS_DIR/zipalign" -p -f -v 4 "$RAW_APK" "$RUNNER_TEMP/aligned.apk" > /dev/null
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-pass "pass:${KEYSTORE_PASSWORD}" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --out "dist/Plinglist-v${APP_VERSION}.apk" \
+            "$RUNNER_TEMP/aligned.apk"
+
+          echo "AAB_FILE=dist/Plinglist-v${APP_VERSION}.aab" >> "$GITHUB_ENV"
+
+      - name: Upload Build Artifacts (APK & AAB)
+        if: ${{ inputs.target_action != 'metadata-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: plinglist-android-v${{ env.APP_VERSION }}-vc${{ inputs.version_code }}
+          path: |
+            dist/*.apk
+            dist/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload AAB & Sync Google Play Store Texts/Graphics
+        if: ${{ inputs.target_action != 'apk-only' }}
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_TRACK: ${{ inputs.play_track }}
+        run: |
+          if [ -z "$SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret!"
+            exit 1
+          fi
+          if [ -f cloud/scripts/sync-playstore-metadata.mjs ]; then
+            node cloud/scripts/sync-playstore-metadata.mjs
+          else
+            echo "::error::Missing cloud/scripts/sync-playstore-metadata.mjs (ensure CLOUD_SSH_KEY is configured)."
+            exit 1
+          fi
+
+      - name: Cleanup Temporary Signing Files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/plinglist-upload.jks" "$RUNNER_TEMP/aligned.apk"

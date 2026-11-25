@@ -5,5 +5,9 @@
   "ios": {
     "contentInset": "never",
     "scheme": "Plinglist"
+  },
+  "android": {
+    "backgroundColor": "#f4f5f6",
+    "allowMixedContent": false
   }
 }

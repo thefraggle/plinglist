@@ -17,6 +17,7 @@ import {
   extractInviteTokenFromInput,
   extractSyncKeyFromInput,
   getDefaultServerUrl,
+  isNativeShellOrigin,
   isOfficialCloudOrigin,
   normalizeServerUrl,
 } from './config.ts';
@@ -303,6 +304,7 @@ export class PlinglistStore {
         typeof globalThis.window !== 'undefined' ? globalThis.window.location?.origin : undefined;
       const migratedLegacyApiUrl =
         loadedServerUrl === DEFAULT_SERVER_URL &&
+        !isNativeShellOrigin(webOrigin) &&
         Boolean(webOrigin && (webOrigin.startsWith('http://') || webOrigin.startsWith('https://')));
       this.serverUrl = migratedLegacyApiUrl ? getDefaultServerUrl() : loadedServerUrl;
       this.soundEnabled = parsed.soundEnabled !== false;

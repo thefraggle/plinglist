@@ -781,15 +781,21 @@ test('high-entropy syncKey/inviteToken, isolated workspace imports, and localSto
   }
 });
 
-test('native shell origin helpers, share base origin, and ?pair= / ?join= input extraction work for iOS & macOS', async () => {
+test('native shell origin helpers, share base origin, and ?pair= / ?join= input extraction work for iOS, macOS & Android', async () => {
   assert.equal(isNativeShellOrigin('capacitor://localhost'), true);
   assert.equal(isNativeShellOrigin('tauri://localhost'), true);
   assert.equal(isNativeShellOrigin('http://localhost'), true);
+  assert.equal(isNativeShellOrigin('https://localhost'), true);
   assert.equal(isNativeShellOrigin('https://tauri.localhost'), true);
   assert.equal(isNativeShellOrigin(undefined), true);
   assert.equal(isNativeShellOrigin('https://plinglist.app'), false);
   assert.equal(isNativeShellOrigin('http://localhost:3001'), false);
 
+  assert.equal(getDefaultServerUrl('https://localhost'), DEFAULT_SERVER_URL);
+  assert.equal(
+    getShareBaseOrigin('https://localhost', DEFAULT_SERVER_URL),
+    OFFICIAL_APP_ORIGIN,
+  );
   assert.equal(
     getShareBaseOrigin('capacitor://localhost', DEFAULT_SERVER_URL),
     OFFICIAL_APP_ORIGIN,
