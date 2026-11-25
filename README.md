@@ -91,7 +91,7 @@ docker compose up -d --build
 ## Documentation & Governance
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System diagram, HLC conflict resolution, SQLite WAL schema, and API contract
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.24`)
+- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.25`)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Coding, TDD, and i18n guidelines
 - [SECURITY.md](SECURITY.md) — Vulnerability disclosure policy
 - [TRADEMARK.md](TRADEMARK.md) — Mandatory rebranding policy for forks and public deployments

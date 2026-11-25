@@ -9,7 +9,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) to-do list application desig
 - **Instant Local Execution:** Every read and mutation (`addTask`, `toggleTaskCompleted`, `addTaskStep`, `updateTask`) executes synchronously against local memory and `localStorage` (`< 16 ms` UI latency, `< 200 ms` cold start). Network synchronization runs strictly asynchronously in the background.
 - **Offline-First Resilience:** Tasks can be created, checked off, starred, and edited without network connectivity. All mutations carry Hybrid Logical Clock (HLC) timestamps for deterministic merging upon reconnect.
 - **Strict YAGNI Scope:** Six views (*My Day* with automatic midnight reset + smart suggestions, *Starred*, *Planned* with due dates & recurrences, *All*, *Tasks*, and *Custom / Shared Lists*) plus debounced live search (`filterTasksByQuery`) and URL state (`?view=&list=&q=&legal=`). No Kanban boards, no AI bloat.
-- **Zero External Runtime Dependencies:** Built directly on Node.js 22 LTS (`node:http`, `node:sqlite`, `node:module.stripTypeScriptTypes`, `node:test`) and standard browser primitives (`<dialog closedby="any">`, Web Audio API, Service Worker, `color-scheme: light dark`, `light-dark()`).
+- **Zero External Runtime Dependencies:** Built directly on Node.js 22 LTS (`node:http`, `node:sqlite`, `node:module.stripTypeScriptTypes`, `node:test`) and standard browser primitives (`<dialog closedby="any">`, `details::details-content`, `HTMLInputElement.showPicker()`, Web Audio API, Service Worker, `color-scheme: light dark`, `light-dark()`).
 - **Strict CSP Compatibility:** No inline `<script>` tags, no inline `style=""` attributes, and no external font/CDN dependencies.
 
 ---
