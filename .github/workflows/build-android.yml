@@ -102,8 +102,16 @@ jobs:
           APP_VERSION="$APP_VERSION" VERSION_CODE="$VERSION_CODE" node - <<'EOF'
           const fs = require('node:fs');
 
+          const varsPath = 'android/variables.gradle';
+          if (fs.existsSync(varsPath)) {
+            let vars = fs.readFileSync(varsPath, 'utf8');
+            vars = vars.replace(/minSdkVersion\s*=\s*\d+/g, 'minSdkVersion = 24');
+            fs.writeFileSync(varsPath, vars);
+          }
+
           const gradlePath = 'android/app/build.gradle';
           let gradle = fs.readFileSync(gradlePath, 'utf8');
+          gradle = gradle.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 24');
           gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${process.env.VERSION_CODE}`);
           gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${process.env.APP_VERSION}"`);
           fs.writeFileSync(gradlePath, gradle);
