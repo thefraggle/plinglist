@@ -650,6 +650,56 @@ function initApp(): void {
     window.setTimeout(() => item.remove(), 2600);
   }
 
+  function formatShortDate(rawDate: string): string {
+    const parsed = new Date(`${rawDate}T12:00:00`);
+    if (Number.isNaN(parsed.getTime())) return rawDate;
+    return new Intl.DateTimeFormat(store.locale === 'de' ? 'de-DE' : 'en-US', {
+      day: 'numeric',
+      month: 'short',
+    }).format(parsed);
+  }
+
+  function setStarButtonState(btn: HTMLButtonElement, starred: boolean): void {
+    btn.setAttribute('aria-pressed', String(starred));
+    let svg = btn.querySelector<SVGSVGElement>('svg.star-icon');
+    if (!svg) {
+      const svgNs = 'http://www.w3.org/2000/svg';
+      svg = document.createElementNS(svgNs, 'svg');
+      svg.setAttribute('class', 'star-icon');
+      svg.setAttribute('width', '18');
+      svg.setAttribute('height', '18');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      const polygon = document.createElementNS(svgNs, 'polygon');
+      polygon.setAttribute(
+        'points',
+        '12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2',
+      );
+      svg.appendChild(polygon);
+      btn.replaceChildren(svg);
+    }
+    svg.setAttribute('fill', starred ? 'currentColor' : 'none');
+  }
+
+  function updateQuickAddDateChip(): void {
+    const dueInput = document.getElementById('newTaskDueDate') as HTMLInputElement | null;
+    const dueLabel = document.getElementById('newTaskDueDateLabel') as HTMLElement | null;
+    const chip = dueInput?.closest('.date-chip');
+    if (!dueInput || !dueLabel || !chip) return;
+    const rawDate = dueInput.value.trim();
+    if (!rawDate) {
+      chip.classList.remove('is-active');
+      dueLabel.textContent = t(store.locale, 'task.dueDate');
+      return;
+    }
+    chip.classList.add('is-active');
+    dueLabel.textContent = formatShortDate(rawDate);
+  }
+
   function applyTranslations(): void {
     if (lastAppliedLocale !== store.locale) {
       lastAppliedLocale = store.locale;
@@ -672,6 +722,7 @@ function initApp(): void {
       });
     }
 
+    updateQuickAddDateChip();
     updateSyncLabels();
   }
 
@@ -748,7 +799,7 @@ function initApp(): void {
       const doneSteps = task.steps.filter((s) => s.completed).length;
       metaParts.push(`${doneSteps}/${task.steps.length} ${t(store.locale, 'task.steps')}`);
     }
-    if (task.dueDate) metaParts.push(task.dueDate);
+    if (task.dueDate) metaParts.push(formatShortDate(task.dueDate));
     if (task.reminderAt) metaParts.push('⏰');
     if (task.recurrence) metaParts.push(`↻ ${t(store.locale, RECURRENCE_LABEL_KEYS[task.recurrence])}`);
     if (task.note.trim()) metaParts.push('📝');
@@ -763,9 +814,8 @@ function initApp(): void {
     const starBtn = document.createElement('button');
     starBtn.type = 'button';
     starBtn.className = 'task-star-btn';
-    starBtn.setAttribute('aria-pressed', String(task.starred));
     starBtn.setAttribute('aria-label', t(store.locale, 'task.starAria'));
-    starBtn.textContent = task.starred ? '★' : '☆';
+    setStarButtonState(starBtn, task.starred);
     starBtn.addEventListener('click', () => {
       store.toggleTaskStarred(task.id);
       render();
@@ -912,7 +962,12 @@ function initApp(): void {
 
     if (activeView === 'my-day') {
       viewTitle.textContent = t(store.locale, 'nav.myDay');
-      viewSubtitle.textContent = `${today} · ${t(store.locale, 'myDay.resetHint')}`;
+      const formattedToday = new Intl.DateTimeFormat(store.locale === 'de' ? 'de-DE' : 'en-US', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      }).format(new Date());
+      viewSubtitle.textContent = `${formattedToday} · ${t(store.locale, 'myDay.resetHint')}`;
       visibleTasks = myDayItems;
     } else if (activeView === 'starred') {
       viewTitle.textContent = t(store.locale, 'nav.starred');
@@ -1181,8 +1236,19 @@ function initApp(): void {
   const newTaskStarBtn = document.getElementById('newTaskStarBtn') as HTMLButtonElement;
   newTaskStarBtn.addEventListener('click', () => {
     quickAddStarred = !quickAddStarred;
-    newTaskStarBtn.setAttribute('aria-pressed', String(quickAddStarred));
-    newTaskStarBtn.textContent = quickAddStarred ? '★' : '☆';
+    setStarButtonState(newTaskStarBtn, quickAddStarred);
+  });
+
+  const newTaskDueDateInput = document.getElementById('newTaskDueDate') as
+    | (HTMLInputElement & { showPicker?: () => void })
+    | null;
+  newTaskDueDateInput?.addEventListener('change', updateQuickAddDateChip);
+  newTaskDueDateInput?.addEventListener('click', () => {
+    try {
+      newTaskDueDateInput.showPicker?.();
+    } catch {
+      // Ignore if picker is already open or unsupported in current WebView
+    }
   });
 
   document.getElementById('addTaskForm')?.addEventListener('submit', (event) => {
@@ -1204,9 +1270,9 @@ function initApp(): void {
 
     titleInput.value = '';
     dueInput.value = '';
+    updateQuickAddDateChip();
     quickAddStarred = false;
-    newTaskStarBtn.setAttribute('aria-pressed', 'false');
-    newTaskStarBtn.textContent = '☆';
+    setStarButtonState(newTaskStarBtn, false);
     trackDiagnostic('task_created');
     render();
   });
