@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.25] - 2026-11-25
+
+### Deutsch
+- Anonyme Diagnosedaten und Datenschutzerklärungen vereinheitlicht (jederzeit in den Einstellungen deaktivierbar).
+- Zuverlässigere Übermittlung anonymer Nutzungszähler bei Verbindung mit der offiziellen Cloud.
+
+### English
+- Unified anonymous diagnostics and updated privacy disclosures (always opt-out capable in Settings).
+- More reliable delivery of anonymous usage counters when connected to the official cloud.
+
 ## [0.1.24] - 2026-11-25
 
 ### Deutsch

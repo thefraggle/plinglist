@@ -622,7 +622,50 @@ test('telemetry is configurable on official cloud origin (plinglist.app) and per
     assert.equal(officialCloud.isTelemetryActive(), true);
     officialCloud.setPreferences({ telemetryEnabled: false });
     assert.equal(officialCloud.preferences.telemetryEnabled, false);
+    assert.equal(officialCloud.preferences.telemetryOptedOut, true);
     assert.equal(officialCloud.isTelemetryActive(), false);
+
+    // Native Capacitor shells support telemetry when connected to official cloud, unless explicitly opted out
+    for (const nativeOrigin of ['https://localhost', 'capacitor://localhost']) {
+      (globalThis as { window?: { location?: { origin?: string } } }).window = {
+        location: { origin: nativeOrigin },
+      };
+      const nativeStorage = createMemoryStorage();
+      const nativeOfficial = new PlinglistStore({ storage: nativeStorage });
+      assert.equal(nativeOfficial.isTelemetrySupported(), true);
+      assert.equal(nativeOfficial.isTelemetryActive(), true);
+
+      nativeOfficial.setPreferences({ telemetryEnabled: false });
+      assert.equal(nativeOfficial.isTelemetryActive(), false);
+      const nativeOptedOutReloaded = new PlinglistStore({ storage: nativeStorage });
+      assert.equal(nativeOptedOutReloaded.isTelemetryActive(), false);
+
+      // Simulate legacy native install that had telemetryEnabled=false without telemetryOptedOut flag
+      const legacyStorage = createMemoryStorage();
+      legacyStorage.setItem(
+        'plinglist.local.v1',
+        JSON.stringify({
+          version: 1,
+          locale: 'de',
+          serverUrl: 'https://api.plinglist.app',
+          soundEnabled: true,
+          preferences: { telemetryEnabled: false },
+          lists: [],
+          tasks: [],
+        }),
+      );
+      const migratedNative = new PlinglistStore({ storage: legacyStorage });
+      assert.equal(migratedNative.isTelemetrySupported(), true);
+      assert.equal(migratedNative.isTelemetryActive(), true);
+
+      // Native shell pointing to custom self-hosted server disables telemetry
+      const nativeSelfHosted = new PlinglistStore({
+        storage: createMemoryStorage(),
+        serverUrl: 'https://my-selfhosted.example.com',
+      });
+      assert.equal(nativeSelfHosted.isTelemetrySupported(), false);
+      assert.equal(nativeSelfHosted.isTelemetryActive(), false);
+    }
   } finally {
     if (prevWindow === undefined) {
       delete (globalThis as { window?: unknown }).window;

@@ -65,9 +65,9 @@ export const TRANSLATIONS = {
     'legal.priv3Heading': '3. Cloud Sync, Storage Duration & Hosting (Contabo Germany)',
     'legal.priv3Body':
       'When Cloud Sync is active (toggleable anytime in Settings → Sync & Import), lists and tasks are stored under your pseudonymous Sync Key or invite token on servers in Germany (Contabo GmbH, DPA pursuant to Art. 28 GDPR) strictly to sync your devices and shared lists (Art. 6(1)(b)/(f) GDPR). When you delete a task or list, all text contents are cleared immediately (empty sync tombstone); you can delete all local and server-stored workspace data anytime under Settings → Sync & Import.',
-    'legal.priv4Heading': '4. Anonymous Diagnostic Telemetry (Umami)',
+    'legal.priv4Heading': '4. Anonymous Diagnostic Telemetry (Umami & Aptabase)',
     'legal.priv4Body':
-      'Only on plinglist.app do we run our self-hosted, cookie-free Umami instance in Germany (telemetry.goork.de, Art. 6(1)(f) GDPR) to record app load without URL tokens, browser/OS type, and 5 anonymous feature counters (task_completed, list_shared, import_completed, device_paired). Task titles, list names, notes, or Sync Keys are never sent. Disable anytime in Settings → General (sets local opt-out flag umami.disabled); permanently off when self-hosted.',
+      'Only when using our official cloud (plinglist.app or native iOS/macOS/Android apps using api.plinglist.app) do we run self-hosted, cookie-free analytics in Germany: Umami (telemetry.goork.de) for web app loads without URL tokens, and Aptabase (telemetry-apps.goork.de) for native app launches and OS/version metrics, plus anonymous feature counters (app_started, task_created, task_completed, list_created, list_shared, list_joined, device_paired, import_completed; Art. 6(1)(f) GDPR). Task titles, list names, notes, or Sync Keys are never sent. Disable anytime in Settings → General; permanently off when self-hosted.',
     'legal.priv5Heading': '5. Your Rights (GDPR)',
     'legal.priv5Body':
       'You have the right to access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18), data portability (Art. 20), objection (Art. 21), and to lodge a complaint with a data protection supervisory authority (e.g., LDI NRW).',
@@ -169,7 +169,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.24 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.25 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -256,9 +256,9 @@ export const TRANSLATIONS = {
     'legal.priv3Heading': '3. Cloud-Sync, Speicherdauer & Hosting (Contabo Deutschland)',
     'legal.priv3Body':
       'Bei aktiviertem Sync (jederzeit deaktivierbar unter Einstellungen → Sync & Import) werden Listen und Aufgaben unter deinem pseudonymen Sync-Key bzw. Einladungs-Token auf Servern in Deutschland (Contabo GmbH, AVV gem. Art. 28 DSGVO) gespeichert, ausschließlich zur Synchronisation deiner Geräte und geteilten Listen (Art. 6 Abs. 1 lit. b/f DSGVO). Beim Löschen einer Aufgabe oder Liste werden alle Textinhalte sofort geleert (inhaltsleerer Tombstone); unter Einstellungen → Sync & Import lassen sich alle lokalen und serverseitig gespeicherten Workspace-Daten jederzeit vollständig löschen.',
-    'legal.priv4Heading': '4. Anonyme Diagnosedaten (Umami selbstgehostet)',
+    'legal.priv4Heading': '4. Anonyme Diagnosedaten (Umami & Aptabase)',
     'legal.priv4Body':
-      'Ausschließlich auf plinglist.app nutzen wir eine eigene, in Deutschland selbstgehostete und cookie-freie Umami-Instanz (telemetry.goork.de, Art. 6 Abs. 1 lit. f DSGVO) für anonyme Diagnosedaten (App-Aufruf ohne URL-Tokens, Browser-/OS-Typ, 5 anonyme Funktionszähler wie task_completed, list_shared, import_completed, device_paired). Aufgabentitel, Listennamen, Notizen oder Sync-Keys werden niemals übertragen. Jederzeit unter Einstellungen → Allgemein deaktivierbar (setzt das lokale Opt-Out-Flag umami.disabled); bei Self-Hosting dauerhaft inaktiv.',
+      'Ausschließlich bei Nutzung unserer offiziellen Cloud (plinglist.app bzw. native iOS-/macOS-/Android-Apps mit api.plinglist.app) erfassen wir in Deutschland eigene, cookie-freie Diagnosedaten ohne Personenprofile: Umami (telemetry.goork.de) im Web ohne URL-Tokens sowie Aptabase (telemetry-apps.goork.de) in den nativen Apps für App-Start, OS-/App-Version und anonyme Funktionszähler (app_started, task_created, task_completed, list_created, list_shared, list_joined, device_paired, import_completed; Art. 6 Abs. 1 lit. f DSGVO). Aufgabentitel, Listennamen, Notizen oder Sync-Keys werden niemals übertragen. Jederzeit unter Einstellungen → Allgemein deaktivierbar; bei Self-Hosting dauerhaft inaktiv.',
     'legal.priv5Heading': '5. Deine Rechte nach DSGVO',
     'legal.priv5Body':
       'Dir stehen die Rechte auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung (Art. 18), Datenübertragbarkeit (Art. 20), Widerspruch (Art. 21) sowie Beschwerde bei einer Datenschutz-Aufsichtsbehörde (z. B. LDI NRW) zu.',
@@ -361,7 +361,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.24 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.25 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

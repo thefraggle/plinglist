@@ -14,6 +14,9 @@ import {
 } from '../../packages/core/src/index.ts';
 import { CC0_CHIME_NOTES, CHIME_MASTER_GAIN } from './audio.ts';
 import {
+  APP_VERSION,
+  APTABASE_APP_KEY,
+  APTABASE_HOST,
   UMAMI_APP_WEBSITE_ID,
   UMAMI_SCRIPT_URL,
   extractInviteTokenFromInput,
@@ -468,6 +471,88 @@ function initApp(): void {
   ].forEach(wireDialogLightDismiss);
 
   let umamiInitialPageTracked = false;
+  let aptabaseLaunchTracked = false;
+  let aptabaseSessionId = '';
+  let aptabaseLastEventAt = 0;
+  let nativeAppVersion = APP_VERSION;
+  let nativeAppBuild = '1';
+  let nativeAppInfoLoaded = false;
+
+  function detectNativeOsInfo(): { osName: string; osVersion: string } {
+    const capPlatform = (
+      window as { Capacitor?: { getPlatform?: () => string } }
+    ).Capacitor?.getPlatform?.();
+    const ua = navigator.userAgent || '';
+    const androidMatch = ua.match(/Android\s+([\d.]+)/i);
+    if (androidMatch || capPlatform === 'android') {
+      return { osName: 'Android', osVersion: androidMatch?.[1] ?? 'unknown' };
+    }
+    const iosMatch = ua.match(/(?:iPhone|iPad|CPU)\s+OS\s+([\d_]+)/i);
+    if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) {
+      return { osName: 'iPadOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+    }
+    if (/iPhone|iPod/i.test(ua) || capPlatform === 'ios') {
+      return { osName: 'iOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+    }
+    const macMatch = ua.match(/Mac OS X\s+([\d_]+)/i);
+    if (/Macintosh/i.test(ua)) {
+      return { osName: 'macOS', osVersion: (macMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+    }
+    return { osName: 'Web', osVersion: 'unknown' };
+  }
+
+  function getAptabaseSessionId(): string {
+    const now = Date.now();
+    if (!aptabaseSessionId || now - aptabaseLastEventAt > 3_600_000) {
+      const rand =
+        typeof globalThis.crypto?.randomUUID === 'function'
+          ? globalThis.crypto.randomUUID().replace(/-/g, '')
+          : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+      aptabaseSessionId = rand.slice(0, 24);
+    }
+    aptabaseLastEventAt = now;
+    return aptabaseSessionId;
+  }
+
+  async function sendAptabaseEvent(eventName: string): Promise<void> {
+    if (!store.isTelemetryActive() || !isNativeShellOrigin()) return;
+    if (!nativeAppInfoLoaded) {
+      nativeAppInfoLoaded = true;
+      try {
+        const info = await capacitorAppPlugin?.getInfo?.();
+        if (info?.version) nativeAppVersion = info.version;
+        if (info?.build) nativeAppBuild = info.build;
+      } catch {
+        // Fallback to bundled APP_VERSION
+      }
+    }
+    const { osName, osVersion } = detectNativeOsInfo();
+    const payload = {
+      timestamp: new Date().toISOString(),
+      sessionId: getAptabaseSessionId(),
+      eventName,
+      systemProps: {
+        isDebug: false,
+        osName,
+        osVersion,
+        locale: navigator.language || store.locale,
+        appVersion: nativeAppVersion,
+        appBuildNumber: nativeAppBuild,
+        sdkVersion: 'aptabase-web@0.1.0',
+      },
+      props: {
+        locale: store.locale,
+      },
+    };
+    void fetch(`${APTABASE_HOST}/api/v0/event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'App-Key': APTABASE_APP_KEY,
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => undefined);
+  }
 
   function syncTelemetryRuntime(): void {
     const existingScript = document.getElementById('plinglist-umami-script');
@@ -485,6 +570,15 @@ function initApp(): void {
       window.localStorage.removeItem('umami.disabled');
     } catch {
       // Ignore storage restrictions
+    }
+
+    if (isNativeShellOrigin()) {
+      existingScript?.remove();
+      if (!aptabaseLaunchTracked) {
+        aptabaseLaunchTracked = true;
+        void sendAptabaseEvent('app_started');
+      }
+      return;
     }
 
     const trackCleanPageview = (): void => {
@@ -515,6 +609,10 @@ function initApp(): void {
 
   function trackDiagnostic(eventName: string): void {
     if (!store.isTelemetryActive()) return;
+    if (isNativeShellOrigin()) {
+      void sendAptabaseEvent(eventName);
+      return;
+    }
     const umami = (window as { umami?: { track: (...args: unknown[]) => void } }).umami;
     if (!umami) return;
     umami.track(eventName, { locale: store.locale });
@@ -1853,6 +1951,7 @@ function initApp(): void {
               cb: (data: { url?: string }) => void,
             ) => void;
             getLaunchUrl?: () => Promise<{ url?: string } | null | undefined>;
+            getInfo?: () => Promise<{ version?: string; build?: string } | null | undefined>;
             exitApp?: () => Promise<void> | void;
             minimizeApp?: () => Promise<void> | void;
           };

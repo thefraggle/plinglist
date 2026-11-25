@@ -14,6 +14,7 @@ import {
 } from '../../packages/core/src/index.ts';
 import {
   DEFAULT_SERVER_URL,
+  OFFICIAL_APP_ORIGIN,
   extractInviteTokenFromInput,
   extractSyncKeyFromInput,
   getDefaultServerUrl,
@@ -36,6 +37,7 @@ export interface PlinglistPreferences {
   autoHideEmptySmartLists: boolean;
   showAllSmartList: boolean;
   telemetryEnabled: boolean;
+  telemetryOptedOut?: boolean;
   syncEnabled: boolean;
 }
 
@@ -47,6 +49,7 @@ export const DEFAULT_PREFERENCES: PlinglistPreferences = {
   autoHideEmptySmartLists: false,
   showAllSmartList: false,
   telemetryEnabled: true,
+  telemetryOptedOut: false,
   syncEnabled: true,
 };
 
@@ -312,6 +315,10 @@ export class PlinglistStore {
       this.serverUrl = migratedLegacyApiUrl ? getDefaultServerUrl() : loadedServerUrl;
       this.soundEnabled = parsed.soundEnabled !== false;
       this.preferences = { ...DEFAULT_PREFERENCES, ...(parsed.preferences ?? {}) };
+      if (this.isTelemetrySupported() && parsed.preferences?.telemetryOptedOut !== true) {
+        // Re-enable telemetry on native shell upgrades where previous builds saved telemetryEnabled=false by default.
+        this.preferences.telemetryEnabled = true;
+      }
       this.lists = parsed.lists;
       this.tasks = parsed.tasks;
       for (const list of this.lists) {
@@ -820,7 +827,16 @@ export class PlinglistStore {
   }
 
   isTelemetrySupported(locationOrigin?: string): boolean {
-    return isOfficialCloudOrigin(locationOrigin);
+    if (isOfficialCloudOrigin(locationOrigin)) {
+      return true;
+    }
+    const origin =
+      locationOrigin ??
+      (typeof globalThis.window !== 'undefined' ? globalThis.window.location?.origin : undefined);
+    return (
+      isNativeShellOrigin(origin) &&
+      (this.serverUrl === DEFAULT_SERVER_URL || this.serverUrl === OFFICIAL_APP_ORIGIN)
+    );
   }
 
   isTelemetryActive(locationOrigin?: string): boolean {
@@ -829,7 +845,11 @@ export class PlinglistStore {
 
   setPreferences(patch: Partial<PlinglistPreferences>): PlinglistPreferences {
     const next = { ...this.preferences, ...patch };
-    if (!this.isTelemetrySupported()) {
+    if (this.isTelemetrySupported()) {
+      if (patch.telemetryEnabled !== undefined) {
+        next.telemetryOptedOut = !patch.telemetryEnabled;
+      }
+    } else {
       next.telemetryEnabled = false;
     }
     this.preferences = next;
