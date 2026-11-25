@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.24] - 2026-11-25
+
+### Deutsch
+- Verbesserte Gesten-Steuerung: Geöffnete Ansichten und das Listenmenü lassen sich jetzt per Zurück-Wischgeste oder Wischen nach links schließen; auf der Hauptansicht beendet Zurück-Wischen die App sauber.
+- Noch zuverlässigere Öffnung von Kopplungs- und Einladungslinks direkt in der App.
+
+### English
+- Improved gesture navigation: Open dialogs and the lists menu can now be dismissed with the back gesture or a left swipe, and the back gesture cleanly exits from the main view.
+- Even more reliable handoff when opening pairing and invite links directly in the app.
+
 ## [0.1.23] - 2026-11-25
 
 ### Deutsch

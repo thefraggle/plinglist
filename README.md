@@ -9,11 +9,11 @@
 
 Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** and **Microsoft To Do** (ahead of the June 30, 2027 Microsoft To Do shutdown).
 
-- **Local-First & Offline-Ready:** Instant startup (`< 200 ms`), synchronous local writes (`localStorage`), deterministic field-level Last-Write-Wins (HLC) delta sync (`lastPushedHlc`), and `Service Worker` offline support (`sw.js`).
+- **Local-First & Offline-Ready:** Instant startup (`< 200 ms`), synchronous local writes (`localStorage`), deterministic field-level Last-Write-Wins (HLC) delta sync (`lastPushedHlc`), and Network-First `Service Worker` offline support (`sw.js`).
 - **6 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), *All / Alle*, *Tasks / Aufgaben*, and *Custom & Shared Lists* (`?join=`), plus debounced live search (`?q=`) and URL state persistence (`?view=`).
 - **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), automatic GDPR tombstone content scrubbing on delete, and 1-click workspace erasure (`DELETE /api/v1/sync`).
 - **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON & CSV)**.
-- **Open Core, Web/PWA & Native Apple / Android Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 preparation for iOS, iPadOS, macOS (Mac Catalyst), and Android.
+- **Open Core, Web/PWA & Native Apple / Android Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 packaging (`de.goork.plinglist`), Universal Links / Android App Links (`/.well-known/`), and automated `v*` tag workflows for iOS, iPadOS, macOS (Mac Catalyst), and Android.
 
 ---
 
@@ -21,16 +21,16 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 
 ```text
 plinglist/
-├── .github/workflows/   # Manual Apple (build-ios-macos.yml) & Android (build-android.yml) workflows
+├── .github/workflows/   # Automated v* & manual Apple (build-ios-macos.yml) & Android (build-android.yml) workflows
 ├── packages/core/       # HLC clock, field-level LWW merge, view/search selectors & JSON/CSV importers
-├── server/              # Node 22 HTTP static + SQLite WAL sync server & invite endpoints
+├── server/              # Node 22 HTTP static + SQLite WAL sync server, .well-known & invite endpoints
 │   └── src/
 │       ├── config.ts
-│       ├── index.ts     # HTTP server (/api/health, /api/v1/sync [POST/DELETE], /api/v1/invites, /join/:token, 404)
+│       ├── index.ts     # HTTP server (/api/health, /api/v1/sync [POST/DELETE], /api/v1/invites, /join/:token, /.well-known/*, 404)
 │       ├── sqlite-repo.ts
 │       └── sync-engine.ts
-├── app/                 # Bilingual local-first Web-App & PWA (index.html, styles.css, store.ts, web-app.ts)
-├── scripts/             # Zero-dependency TypeScript-stripping build script (build-app.mjs)
+├── app/                 # Bilingual local-first Web-App & PWA (index.html, styles.css, store.ts, web-app.ts, sw.js)
+├── scripts/             # Zero-dependency TypeScript-stripping & SW cache-stamping build script (build-app.mjs)
 ├── capacitor.config.json # Capacitor 7 native iOS, macOS & Android configuration (app/dist -> de.goork.plinglist)
 ├── ARCHITECTURE.md      # Technical architecture, HLC sync & SQLite WAL schema
 ├── CHANGELOG.md
@@ -48,12 +48,12 @@ To keep the public open-core repository lightweight and dependency-free (`npm te
 
 ```bash
 npm run build
-npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7
+npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7 @capacitor/app@7
 npx cap add ios && npx cap sync ios
 npx cap add android && npx cap sync android
 ```
 
-All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, `extractInviteTokenFromInput()`, and `plinglist://` deep-link handling) is part of the public `app/` codebase. For public forks or redistributed binaries, follow [TRADEMARK.md](TRADEMARK.md) and choose your own app ID, icons, and branding.
+All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, `extractInviteTokenFromInput()`, `@capacitor/app` deep-link & back-gesture handling, and `plinglist://` deep-link handling) is part of the public `app/` codebase. For public forks or redistributed binaries, follow [TRADEMARK.md](TRADEMARK.md) and choose your own app ID, icons, and branding.
 
 ---
 
@@ -62,7 +62,7 @@ All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigi
 Requires **Node.js 22+**.
 
 ```bash
-# Run the test suite across core, server, and app (40 tests)
+# Run the test suite across core, server, and app (44 tests)
 npm test
 
 # Build the browser bundle into app/dist/
@@ -91,7 +91,7 @@ docker compose up -d --build
 ## Documentation & Governance
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System diagram, HLC conflict resolution, SQLite WAL schema, and API contract
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.19`)
+- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.24`)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Coding, TDD, and i18n guidelines
 - [SECURITY.md](SECURITY.md) — Vulnerability disclosure policy
 - [TRADEMARK.md](TRADEMARK.md) — Mandatory rebranding policy for forks and public deployments
