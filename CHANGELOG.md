@@ -2,6 +2,18 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.21] - 2026-11-25
+
+### Deutsch
+- Zuverlässigere Geräte-Kopplung: Beim Verbinden über einen Sync-Link oder Sync-Key werden alle Listen und Aufgaben sofort vollständig geladen und direkt angezeigt.
+- Verbesserte Link-Vorschau beim Teilen von Listen und Kopplungslinks.
+- Schneller Wechsel aus geöffneten Web-Links direkt in die installierte App.
+
+### English
+- More reliable device pairing: Connecting via a sync link or Sync Key now immediately loads and displays all your lists and tasks.
+- Improved link previews when sharing lists and pairing links.
+- Quick handoff from shared web links directly into the installed app.
+
 ## [0.1.20] - 2026-11-25
 
 ### Added

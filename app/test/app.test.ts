@@ -913,6 +913,49 @@ test('setSyncKey via pairing URL cleanly replaces existing throwaway session wit
     assert.ok(androidApp.getActiveLists().some((l) => l.title === 'Büro'));
     assert.ok(androidApp.tasks.some((t) => t.title === 'Web Task 1' && t.starred));
     assert.ok(androidApp.tasks.some((t) => t.title === 'Steuerbelege sortieren'));
+
+    // Also forceReset=true replaces state even when initial key matched target key
+    androidApp.addTask({ listId: androidApp.getDefaultTasksListId(), title: 'Temp Crash Task' });
+    androidApp.setSyncKey(webApp.syncKey, { forceReset: true });
+    assert.equal(androidApp.tasks.some((t) => t.title === 'Temp Crash Task'), false);
+    await androidApp.syncWithServer();
+    assert.ok(androidApp.tasks.some((t) => t.title === 'Web Task 1'));
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
+
+test('syncWithServer does not skip tasks created while an earlier sync request is in flight', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+    const store = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    store.addTask({ listId: store.getDefaultTasksListId(), title: 'Erster Task' });
+
+    const delayedFetch: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      // Create a second task locally while sync #1 response is still returning
+      if (store.tasks.length === 1) {
+        store.addTask({ listId: store.getDefaultTasksListId(), title: 'Während Sync erstellt' });
+      }
+      return res;
+    };
+
+    assert.equal((await store.syncWithServer(delayedFetch)).synced, true);
+    assert.equal((await store.syncWithServer()).synced, true);
+
+    const peer = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    peer.setSyncKey(store.syncKey);
+    await peer.syncWithServer();
+    assert.ok(peer.tasks.some((t) => t.title === 'Erster Task'));
+    assert.ok(peer.tasks.some((t) => t.title === 'Während Sync erstellt'));
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

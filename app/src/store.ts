@@ -834,7 +834,12 @@ export class PlinglistStore {
     return this.preferences;
   }
 
-  setSyncKey(nextSyncKey: string): string {
+  forceFullSync(): void {
+    this.cursorHlc = null;
+    this.lastPushedHlc = null;
+  }
+
+  setSyncKey(nextSyncKey: string, options?: { forceReset?: boolean }): string {
     const clean = extractSyncKeyFromInput(nextSyncKey);
     if (clean.length < 8) {
       throw new Error('Sync-Key must be at least 8 characters');
@@ -844,7 +849,7 @@ export class PlinglistStore {
     this.cursorHlc = null;
     this.lastPushedHlc = null;
 
-    if (clean !== prevSyncKey) {
+    if (clean !== prevSyncKey || options?.forceReset) {
       this.tasks = [];
       this.seedDefaults('000000000000000:00000:init');
     } else {
@@ -921,12 +926,20 @@ export class PlinglistStore {
 
     const sendFullSnapshot = this.cursorHlc === null || this.lastPushedHlc === null;
     const pushedThreshold = this.lastPushedHlc;
-    const clientLists = sendFullSnapshot
-      ? this.lists
-      : this.lists.filter((l) => compareHlc(l.hlc, pushedThreshold!) > 0);
-    const clientTasks = sendFullSnapshot
-      ? this.tasks
-      : this.tasks.filter((t) => compareHlc(t.hlc, pushedThreshold!) > 0);
+    const clientLists = (
+      sendFullSnapshot
+        ? this.lists
+        : this.lists.filter((l) => compareHlc(l.hlc, pushedThreshold!) > 0)
+    ).map((l) => ({ ...l }));
+    const clientTasks = (
+      sendFullSnapshot
+        ? this.tasks
+        : this.tasks.filter((t) => compareHlc(t.hlc, pushedThreshold!) > 0)
+    ).map((t) => ({ ...t }));
+    const sentHlcs: HlcTimestamp[] = [
+      ...clientLists.map((l) => l.hlc),
+      ...clientTasks.map((t) => t.hlc),
+    ];
 
     const requestSyncKey = this.syncKey;
     try {
@@ -956,16 +969,16 @@ export class PlinglistStore {
         return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
       }
       const applied = this.applyServerSync(data);
-      let maxHlc = this.lastPushedHlc;
-      const bump = (candidate: HlcTimestamp | null | undefined): void => {
-        if (candidate && (!maxHlc || compareHlc(candidate, maxHlc) > 0)) {
-          maxHlc = candidate;
+      let maxPushed = this.lastPushedHlc;
+      for (const candidate of sentHlcs) {
+        if (!maxPushed || compareHlc(candidate, maxPushed) > 0) {
+          maxPushed = candidate;
         }
-      };
-      bump(data.cursorHlc);
-      for (const l of this.lists) bump(l.hlc);
-      for (const t of this.tasks) bump(t.hlc);
-      this.lastPushedHlc = maxHlc;
+      }
+      if (!maxPushed && data.cursorHlc && sentHlcs.length === 0) {
+        maxPushed = '000000000000000:00000:init';
+      }
+      this.lastPushedHlc = maxPushed;
       return { synced: true, ...applied };
     } catch {
       return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };

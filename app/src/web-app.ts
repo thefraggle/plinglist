@@ -198,11 +198,9 @@ function initApp(): void {
   let scheduleBackgroundSync = (): void => {};
   const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
   const startupParams = new URLSearchParams(window.location.search);
-  const initialPairKey = startupParams.get('pair')?.trim();
   const store = new PlinglistStore({
     storage: window.localStorage,
     locale: browserLocale,
-    syncKey: initialPairKey && initialPairKey.length >= 8 ? initialPairKey : undefined,
     onLocalMutation: () => scheduleBackgroundSync(),
   });
 
@@ -227,6 +225,7 @@ function initApp(): void {
   let editingTaskId: string | null = null;
   let hasSyncedOnce = false;
   let syncInFlight = false;
+  let syncQueued = false;
   let syncDebounceTimer: number | undefined;
   let searchDebounceTimer: number | undefined;
   let lastAppliedLocale: string | null = null;
@@ -340,8 +339,41 @@ function initApp(): void {
     }
   }
 
+  function selectBestViewAfterPairing(): void {
+    const activeMyDay = getMyDayTasks(
+      store.tasks,
+      getLocalIsoDate(),
+      store.preferences.autoAddDueTodayToMyDay,
+    );
+    if (activeView === 'my-day' && activeMyDay.length === 0) {
+      const openTasks = store.tasks.filter((task) => task.deletedAt === null && !task.completed);
+      if (openTasks.length > 0) {
+        const defaultId = store.getDefaultTasksListId();
+        if (openTasks.some((task) => task.listId === defaultId)) {
+          activeView = 'tasks';
+          return;
+        }
+        const firstCustomWithTasks = store
+          .getCustomLists()
+          .find((list) => openTasks.some((task) => task.listId === list.id));
+        if (firstCustomWithTasks) {
+          activeView = 'lists';
+          activeListId = firstCustomWithTasks.id;
+          return;
+        }
+      }
+    }
+    if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+      activeListId = store.getDefaultTasksListId();
+    }
+  }
+
   async function runSyncNow(): Promise<void> {
-    if (!navigator.onLine || syncInFlight) return;
+    if (!navigator.onLine) return;
+    if (syncInFlight) {
+      syncQueued = true;
+      return;
+    }
     syncInFlight = true;
     try {
       const result = await store.syncWithServer();
@@ -349,7 +381,7 @@ function initApp(): void {
         hasSyncedOnce = true;
         if (result.revokedLists > 0) {
           if (
-            activeView === 'list' &&
+            activeView === 'lists' &&
             !store.getActiveLists().some((l) => l.id === activeListId)
           ) {
             activeView = 'my-day';
@@ -372,6 +404,10 @@ function initApp(): void {
       }
     } finally {
       syncInFlight = false;
+      if (syncQueued) {
+        syncQueued = false;
+        void runSyncNow();
+      }
     }
   }
 
@@ -867,6 +903,8 @@ function initApp(): void {
     (document.getElementById('nativeShareInviteBtn') as HTMLButtonElement).hidden = !canNativeShare;
     (document.getElementById('nativeSharePairBtn') as HTMLButtonElement).hidden = !canNativeShare;
 
+    store.forceFullSync();
+    void runSyncNow();
     shareDialog.showModal();
   }
 
@@ -1109,6 +1147,8 @@ function initApp(): void {
   }
 
   document.getElementById('copySettingsPairUrlBtn')?.addEventListener('click', async () => {
+    store.forceFullSync();
+    void runSyncNow();
     const pairUrl = store.getPairingUrl(
       getShareBaseOrigin(window.location.origin, store.serverUrl),
     );
@@ -1144,6 +1184,8 @@ function initApp(): void {
   });
 
   document.getElementById('copyPairUrlBtn')?.addEventListener('click', async () => {
+    store.forceFullSync();
+    void runSyncNow();
     const input = document.getElementById('sharePairUrlInput') as HTMLInputElement | null;
     const val = input?.value ?? '';
     await copyWithFeedback(val, input, 'share.pairCopied');
@@ -1174,6 +1216,8 @@ function initApp(): void {
   });
 
   document.getElementById('nativeSharePairBtn')?.addEventListener('click', async () => {
+    store.forceFullSync();
+    void runSyncNow();
     const url = (document.getElementById('sharePairUrlInput') as HTMLInputElement).value;
     await navigator
       .share?.({ title: 'Plinglist Sync', text: t(store.locale, 'share.pairSectionTitle'), url })
@@ -1194,11 +1238,9 @@ function initApp(): void {
         rawValue.includes('key=') ||
         extractSyncKeyFromInput(rawValue).startsWith('pling-');
       if (looksLikePairing) {
-        store.setSyncKey(rawValue);
+        store.setSyncKey(rawValue, { forceReset: true });
         await store.syncWithServer();
-        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
-          activeListId = store.getDefaultTasksListId();
-        }
+        selectBestViewAfterPairing();
         hasSyncedOnce = true;
         input.value = '';
         trackDiagnostic('device_paired');
@@ -1496,6 +1538,7 @@ function initApp(): void {
       btn.dataset.loading = 'true';
     }
     try {
+      store.forceFullSync();
       await runSyncNow();
       updateSyncLabels();
     } finally {
@@ -1534,7 +1577,7 @@ function initApp(): void {
     });
   });
 
-  document.getElementById('settingsForm')?.addEventListener('submit', (event) => {
+  document.getElementById('settingsForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const errEl = document.getElementById('settingsErrorText') as HTMLElement;
     const nextLocale = (document.getElementById('settingsLocaleSelect') as HTMLSelectElement)
@@ -1572,14 +1615,9 @@ function initApp(): void {
     };
 
     const prevSyncKey = store.syncKey;
+    let keyChanged = false;
     try {
-      store.setSyncKey(nextSyncKey);
-      if (nextSyncKey.trim() !== prevSyncKey) {
-        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
-          activeListId = store.getDefaultTasksListId();
-        }
-        trackDiagnostic('device_paired');
-      }
+      keyChanged = store.setSyncKey(nextSyncKey) !== prevSyncKey;
     } catch {
       selectSettingsTab('sync');
       errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
@@ -1594,7 +1632,20 @@ function initApp(): void {
       store.setPreferences(nextPrefs);
       syncTelemetryRuntime();
       errEl.hidden = true;
-      void closeTopLayer(settingsDialog);
+      await closeTopLayer(settingsDialog);
+      if (keyChanged) {
+        const res = await store.syncWithServer();
+        if (res.synced) {
+          hasSyncedOnce = true;
+          selectBestViewAfterPairing();
+          showToast(t(store.locale, 'toast.devicePaired'));
+        } else {
+          showToast(t(store.locale, 'toast.settingsSaved'));
+        }
+        trackDiagnostic('device_paired');
+        render();
+        return;
+      }
       showToast(t(store.locale, 'toast.settingsSaved'));
       render();
       void runSyncNow();
@@ -1670,11 +1721,9 @@ function initApp(): void {
     const pairCandidate = parsed.searchParams.get('pair') ?? parsed.searchParams.get('key');
     if (pairCandidate?.trim()) {
       try {
-        store.setSyncKey(extractSyncKeyFromInput(trimmed));
+        store.setSyncKey(extractSyncKeyFromInput(trimmed), { forceReset: true });
         await store.syncWithServer();
-        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
-          activeListId = store.getDefaultTasksListId();
-        }
+        selectBestViewAfterPairing();
         hasSyncedOnce = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
@@ -1776,11 +1825,9 @@ function initApp(): void {
       const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
       window.history.replaceState({}, '', cleanUrl);
       try {
-        store.setSyncKey(pairKey);
+        store.setSyncKey(pairKey, { forceReset: true });
         await store.syncWithServer();
-        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
-          activeListId = store.getDefaultTasksListId();
-        }
+        selectBestViewAfterPairing();
         hasSyncedOnce = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
