@@ -14,10 +14,19 @@ on:
           - macos
           - all
       build_number:
-        description: 'CFBundleVersion build number (must increase per App Store upload)'
+        description: 'CFBundleVersion build number (auto = next free App Store Connect build number)'
         required: true
-        default: '1'
+        default: 'auto'
         type: string
+      macos_runner:
+        description: 'macOS runner pool (macos-15-intel avoids arm64 queue timeouts)'
+        required: true
+        default: 'macos-15-intel'
+        type: choice
+        options:
+          - macos-15-intel
+          - macos-26
+          - macos-15
       upload_to_appstore:
         description: 'Upload signed archive(s) to App Store Connect / TestFlight'
         required: true
@@ -34,7 +43,7 @@ permissions:
 jobs:
   build-apple:
     name: Archive & Upload (${{ inputs.target_platform }})
-    runs-on: ${{ inputs.target_platform == 'metadata-only' && 'ubuntu-latest' || 'macos-15' }}
+    runs-on: ${{ inputs.target_platform == 'metadata-only' && 'ubuntu-latest' || inputs.macos_runner || 'macos-15-intel' }}
     env:
       APP_BUNDLE_ID: de.goork.plinglist
       APPLE_TEAM_ID: 296C735W8C
@@ -155,8 +164,12 @@ jobs:
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
           INFO_PLIST="ios/App/App/Info.plist"
 
+          INITIAL_BUILD="${{ inputs.build_number }}"
+          if [ "$INITIAL_BUILD" = "auto" ] || ! [[ "$INITIAL_BUILD" =~ ^[0-9]+$ ]]; then
+            INITIAL_BUILD="1"
+          fi
           sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = ${APP_VERSION};/g" "$PBXPROJ"
-          sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = ${{ inputs.build_number }};/g" "$PBXPROJ"
+          sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = ${INITIAL_BUILD};/g" "$PBXPROJ"
           sed -i '' "s/SUPPORTS_MACCATALYST = NO;/SUPPORTS_MACCATALYST = YES;/g" "$PBXPROJ" || true
           if ! grep -q "SUPPORTS_MACCATALYST" "$PBXPROJ"; then
             sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = /DEVELOPMENT_TEAM = ${APPLE_TEAM_ID};\n\t\t\t\tDERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;\n\t\t\t\tSUPPORTS_MACCATALYST = YES;\n\t\t\t\tSUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = /g" "$PBXPROJ"
@@ -191,6 +204,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           TARGET_PLATFORM: ${{ inputs.target_platform }}
+          INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           if [ -z "$BUILD_CERTIFICATE_BASE64" ] || [ -z "$P12_PASSWORD" ]; then
             echo "::error::Missing BUILD_CERTIFICATE_BASE64 or P12_PASSWORD secret!"
@@ -354,6 +368,31 @@ jobs:
 
             const hasAssocDomains = await ensureAssociatedDomainsCapability(bundle.id);
             fs.appendFileSync(process.env.GITHUB_ENV, `HAS_ASSOCIATED_DOMAINS=${hasAssocDomains}\n`);
+
+            // Resolve next free App Store Connect CFBundleVersion build number automatically
+            let maxBuild = 0;
+            try {
+              const appRes = await asc('GET', `/apps?filter[bundleId]=${encodeURIComponent(process.env.APP_BUNDLE_ID)}`);
+              const ascApp = (appRes.data || []).find((a) => a.attributes?.bundleId === process.env.APP_BUNDLE_ID);
+              if (ascApp) {
+                const buildsRes = await asc('GET', `/builds?filter[app]=${ascApp.id}&limit=100`);
+                for (const b of buildsRes.data || []) {
+                  const num = Number.parseInt(b.attributes?.version || '0', 10);
+                  if (Number.isFinite(num) && num > maxBuild) maxBuild = num;
+                }
+              }
+            } catch (err) {
+              console.warn(`Notice: could not query existing ASC builds (${err.message})`);
+            }
+            const reqBuild = Number.parseInt(process.env.INPUT_BUILD_NUMBER || '0', 10);
+            const effectiveBuild = Math.max(Number.isFinite(reqBuild) && reqBuild > 0 ? reqBuild : 1, maxBuild + 1);
+            const pbxPath = 'ios/App/App.xcodeproj/project.pbxproj';
+            const updatedPbx = fs
+              .readFileSync(pbxPath, 'utf8')
+              .replace(/CURRENT_PROJECT_VERSION = .*?;/g, `CURRENT_PROJECT_VERSION = ${effectiveBuild};`);
+            fs.writeFileSync(pbxPath, updatedPbx);
+            fs.appendFileSync(process.env.GITHUB_ENV, `EFFECTIVE_BUILD_NUMBER=${effectiveBuild}\n`);
+            console.log(`Resolved CFBundleVersion: ${effectiveBuild} (previous ASC max: ${maxBuild})`);
 
             const target = process.env.TARGET_PLATFORM;
             if ((target === 'all' || target === 'ios') && !process.env.IOS_PROFILE_NAME) {
@@ -775,7 +814,7 @@ jobs:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
-          BUILD_NUMBER: ${{ inputs.build_number }}
+          BUILD_NUMBER: ${{ env.EFFECTIVE_BUILD_NUMBER || inputs.build_number }}
         run: |
           if [ -f cloud/scripts/sync-appstore-metadata.mjs ]; then
             node cloud/scripts/sync-appstore-metadata.mjs
