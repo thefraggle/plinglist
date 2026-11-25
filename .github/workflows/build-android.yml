@@ -83,7 +83,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'gradle'
 
       - name: Initialize & Sync Capacitor 7 Android Project
         if: ${{ inputs.target_action != 'metadata-only' }}
@@ -141,11 +140,13 @@ jobs:
           mkdir -p dist
           KEYSTORE_PATH="$RUNNER_TEMP/plinglist-upload.jks"
           if [ -n "$KEYSTORE_BASE64" ]; then
-            if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "::error::KEYSTORE_BASE64 is set, but KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD secret is missing!"
+            KEY_ALIAS="${KEY_ALIAS:-plinglist}"
+            KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+            if [ -z "$KEYSTORE_PASSWORD" ]; then
+              echo "::error::KEYSTORE_BASE64 is set, but KEYSTORE_PASSWORD secret is missing!"
               exit 1
             fi
-            echo -n "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            echo "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$KEYSTORE_PATH"
           elif [ "$TARGET_ACTION" = "apk-only" ]; then
             echo "No KEYSTORE_BASE64 secret configured; generating temporary test signing keystore for apk-only build."
             KEYSTORE_PASSWORD="plinglist-temp-pass"
