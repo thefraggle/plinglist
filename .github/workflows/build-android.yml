@@ -127,10 +127,10 @@ jobs:
       - name: Build & Sign Android Release APK & AAB
         if: ${{ inputs.target_action != 'metadata-only' }}
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
           TARGET_ACTION: ${{ inputs.target_action }}
         run: |
           cd android
@@ -142,12 +142,12 @@ jobs:
           KEYSTORE_PATH="$RUNNER_TEMP/plinglist-upload.jks"
           if [ -n "$KEYSTORE_BASE64" ]; then
             if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
-              echo "::error::ANDROID_KEYSTORE_BASE64 is set, but password/alias secret is missing!"
+              echo "::error::KEYSTORE_BASE64 is set, but KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD secret is missing!"
               exit 1
             fi
             echo -n "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           elif [ "$TARGET_ACTION" = "apk-only" ]; then
-            echo "No ANDROID_KEYSTORE_BASE64 secret configured; generating temporary test signing keystore for apk-only build."
+            echo "No KEYSTORE_BASE64 secret configured; generating temporary test signing keystore for apk-only build."
             KEYSTORE_PASSWORD="plinglist-temp-pass"
             KEY_PASSWORD="plinglist-temp-pass"
             KEY_ALIAS="plinglist-temp"
@@ -155,7 +155,7 @@ jobs:
               -alias "$KEY_ALIAS" -keypass "$KEY_PASSWORD" -keyalg RSA -keysize 2048 -validity 365 \
               -dname "CN=Plinglist Test APK, O=Goork, C=DE"
           else
-            echo "::error::Missing ANDROID_KEYSTORE_BASE64 secret required for Google Play release signing!"
+            echo "::error::Missing KEYSTORE_BASE64 secret required for Google Play release signing!"
             exit 1
           fi
 
@@ -193,11 +193,11 @@ jobs:
       - name: Upload AAB & Sync Google Play Store Texts/Graphics
         if: ${{ inputs.target_action != 'apk-only' }}
         env:
-          SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           PLAY_TRACK: ${{ inputs.play_track }}
         run: |
           if [ -z "$SERVICE_ACCOUNT_JSON" ]; then
-            echo "::error::Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret!"
+            echo "::error::Missing SERVICE_ACCOUNT_JSON (or GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) secret!"
             exit 1
           fi
           if [ -f cloud/scripts/sync-playstore-metadata.mjs ]; then
