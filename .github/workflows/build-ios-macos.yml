@@ -1,6 +1,9 @@
-name: Build & Upload iOS / macOS (Manual)
+name: Build & Upload iOS / macOS
 
 on:
+  push:
+    tags:
+      - 'v[0-9]*'
   workflow_dispatch:
     inputs:
       target_platform:
@@ -42,7 +45,7 @@ permissions:
 
 jobs:
   build-apple:
-    name: Archive & Upload (${{ inputs.target_platform }})
+    name: Archive & Upload (${{ inputs.target_platform || 'all' }})
     runs-on: ${{ inputs.target_platform == 'metadata-only' && 'ubuntu-latest' || inputs.macos_runner || 'macos-15-intel' }}
     env:
       APP_BUNDLE_ID: de.goork.plinglist
@@ -164,7 +167,7 @@ jobs:
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
           INFO_PLIST="ios/App/App/Info.plist"
 
-          INITIAL_BUILD="${{ inputs.build_number }}"
+          INITIAL_BUILD="${{ inputs.build_number || 'auto' }}"
           if [ "$INITIAL_BUILD" = "auto" ] || ! [[ "$INITIAL_BUILD" =~ ^[0-9]+$ ]]; then
             INITIAL_BUILD="1"
           fi
@@ -195,7 +198,7 @@ jobs:
           xcodebuild -version | head -n 1
 
       - name: Install Apple Distribution Certificate & Fetch/Install Provisioning Profiles
-        if: ${{ inputs.upload_to_appstore && inputs.target_platform != 'metadata-only' }}
+        if: ${{ inputs.upload_to_appstore != false && inputs.target_platform != 'metadata-only' }}
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -203,8 +206,8 @@ jobs:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
-          TARGET_PLATFORM: ${{ inputs.target_platform }}
-          INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
+          TARGET_PLATFORM: ${{ inputs.target_platform || 'all' }}
+          INPUT_BUILD_NUMBER: ${{ inputs.build_number || 'auto' }}
         run: |
           if [ -z "$BUILD_CERTIFICATE_BASE64" ] || [ -z "$P12_PASSWORD" ]; then
             echo "::error::Missing BUILD_CERTIFICATE_BASE64 or P12_PASSWORD secret!"
@@ -570,7 +573,7 @@ jobs:
           EOF
 
       - name: Archive & Upload iOS (iPhone / iPad)
-        if: ${{ inputs.target_platform == 'all' || inputs.target_platform == 'ios' }}
+        if: ${{ !inputs.target_platform || inputs.target_platform == 'all' || inputs.target_platform == 'ios' }}
         working-directory: ios/App
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -585,7 +588,7 @@ jobs:
           fi
           echo "Using $CONTAINER_FLAG $CONTAINER_NAME"
 
-          if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
+          if [ "${{ inputs.upload_to_appstore != false }}" = "true" ]; then
             IOS_PROFILE_NAME="$IOS_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" HAS_ASSOCIATED_DOMAINS="${HAS_ASSOCIATED_DOMAINS:-false}" node - <<'EOF'
           const fs = require('node:fs');
           const pbxPath = 'App.xcodeproj/project.pbxproj';
@@ -678,7 +681,7 @@ jobs:
           fi
 
       - name: Archive & Upload macOS (Mac Catalyst)
-        if: ${{ inputs.target_platform == 'all' || inputs.target_platform == 'macos' }}
+        if: ${{ !inputs.target_platform || inputs.target_platform == 'all' || inputs.target_platform == 'macos' }}
         working-directory: ios/App
         env:
           ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -692,7 +695,7 @@ jobs:
             CONTAINER_NAME="App.xcodeproj"
           fi
 
-          if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
+          if [ "${{ inputs.upload_to_appstore != false }}" = "true" ]; then
             MAC_PROFILE_NAME="$MAC_PROFILE_NAME" APPLE_TEAM_ID="$APPLE_TEAM_ID" HAS_ASSOCIATED_DOMAINS="${HAS_ASSOCIATED_DOMAINS:-false}" node - <<'EOF'
           const fs = require('node:fs');
           const teamId = process.env.APPLE_TEAM_ID;
@@ -808,13 +811,13 @@ jobs:
               CODE_SIGNING_ALLOWED=NO
           fi
 
-      - name: Sync App Store Connect Version (0.1.19), Texts & Screenshots
-        if: ${{ inputs.upload_to_appstore }}
+      - name: Sync App Store Connect Version, Texts & Screenshots
+        if: ${{ inputs.upload_to_appstore != false }}
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
-          BUILD_NUMBER: ${{ env.EFFECTIVE_BUILD_NUMBER || inputs.build_number }}
+          BUILD_NUMBER: ${{ env.EFFECTIVE_BUILD_NUMBER || inputs.build_number || '1' }}
         run: |
           if [ -f cloud/scripts/sync-appstore-metadata.mjs ]; then
             node cloud/scripts/sync-appstore-metadata.mjs

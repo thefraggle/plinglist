@@ -1,6 +1,9 @@
-name: Build & Release Android (Manual)
+name: Build & Release Android
 
 on:
+  push:
+    tags:
+      - 'v[0-9]*'
   workflow_dispatch:
     inputs:
       target_action:
@@ -37,7 +40,7 @@ permissions:
 
 jobs:
   build-android:
-    name: Android (${{ inputs.target_action }})
+    name: Android (${{ inputs.target_action || 'build-and-upload' }})
     runs-on: ubuntu-latest
     env:
       PLAY_PACKAGE_NAME: de.goork.plinglist
@@ -87,7 +90,7 @@ jobs:
       - name: Initialize & Sync Capacitor 7 Android Project
         if: ${{ inputs.target_action != 'metadata-only' }}
         env:
-          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_CODE: ${{ inputs.version_code || 'auto' }}
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
@@ -235,7 +238,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
-          TARGET_ACTION: ${{ inputs.target_action }}
+          TARGET_ACTION: ${{ inputs.target_action || 'build-and-upload' }}
         run: |
           cd android
           chmod +x gradlew
@@ -291,7 +294,7 @@ jobs:
         if: ${{ inputs.target_action != 'metadata-only' }}
         uses: actions/upload-artifact@v4
         with:
-          name: plinglist-android-v${{ env.APP_VERSION }}-vc${{ env.EFFECTIVE_VERSION_CODE || inputs.version_code }}
+          name: plinglist-android-v${{ env.APP_VERSION }}-vc${{ env.EFFECTIVE_VERSION_CODE || inputs.version_code || 'auto' }}
           path: |
             dist/*.apk
             dist/*.aab
@@ -302,7 +305,7 @@ jobs:
         if: ${{ inputs.target_action != 'apk-only' }}
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          PLAY_TRACK: ${{ inputs.play_track }}
+          PLAY_TRACK: ${{ inputs.play_track || 'internal' }}
         run: |
           if [ -z "$SERVICE_ACCOUNT_JSON" ]; then
             echo "::error::Missing SERVICE_ACCOUNT_JSON (or GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) secret!"

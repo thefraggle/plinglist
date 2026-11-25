@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.20] - 2026-11-25
+
+### Added
+- **Android Google Play Release & Store Automation (`capacitor.config.json`, `.github/workflows/build-android.yml`):** Added Capacitor 7 Android configuration (`allowMixedContent: false`), adaptive/legacy launcher icons, `minSdkVersion 26` / `targetSdkVersion 36`, automatic Google Play `versionCode` resolution, and automated AAB + listing + 18 graphics sync.
+- **Universal Links (iOS/macOS), Android App Links & Dynamic Open Graph Previews (`server/src/index.ts`, `server/src/config.ts`, `app/index.html`, `app/src/web-app.ts`):** Added `/.well-known/apple-app-site-association`, `/.well-known/assetlinks.json` (with Play App Signing + upload SHA-256 fingerprints), `@capacitor/app@7` `getLaunchUrl()` cold-start handling, `#nativeAppHandoffBanner` (*Open in App*), `og-image.png` (`1200×630`), and dynamic Open Graph previews (`noindex, nofollow`) for `?join=` and `?pair=` URLs.
+- **Automated `v*` Tag Store Builds:** Enabled `on: push: tags: ['v[0-9]*']` in both `build-ios-macos.yml` (`macos-15-intel`, auto build number) and `build-android.yml` (`auto` versionCode).
+
+### Fixed
+- **Clean Device Pairing Session Replacement (`app/src/store.ts`, `app/src/web-app.ts`):** Switching `syncKey` via `?pair=` now discards throwaway local session data cleanly, aborts stale in-flight sync responses from the previous `syncKey`, accepts `?pair=` URLs in `#joinSharedListForm`, and fixes the missing `isNativeShellOrigin` import in `web-app.ts`.
+
 ## [0.1.19] - 2026-11-25
 
 ### Added
