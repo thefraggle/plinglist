@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       target_platform:
-        description: 'Target Apple platform to build & upload'
+        description: 'Target Apple platform to build & upload (ios covers iPhone, iPad & Apple Silicon Mac)'
         required: true
-        default: 'all'
+        default: 'ios'
         type: choice
         options:
-          - all
           - ios
           - macos
+          - all
       build_number:
         description: 'CFBundleVersion build number (must increase per App Store upload)'
         required: true
@@ -320,42 +320,6 @@ jobs:
             }
             if (target === 'all' || target === 'macos') {
               await ensureProfile(bundle.id, cert.id, 'MAC_CATALYST_APP_STORE', 'Plinglist Mac Catalyst AppStore', 'MAC');
-
-              // macOS .pkg export requires a "Mac Installer Distribution" certificate
-              const tmp = process.env.RUNNER_TEMP;
-              const keyPath = path.join(tmp, 'mac_installer.key');
-              const csrPath = path.join(tmp, 'mac_installer.csr');
-              const cerPath = path.join(tmp, 'mac_installer.cer');
-              const pemPath = path.join(tmp, 'mac_installer.pem');
-              const p12Path = path.join(tmp, 'mac_installer.p12');
-              execFileSync('openssl', [
-                'req', '-new', '-newkey', 'rsa:2048', '-nodes',
-                '-keyout', keyPath, '-out', csrPath, '-subj', '/CN=Plinglist CI Mac Installer',
-              ]);
-              const csrContent = fs.readFileSync(csrPath, 'utf8');
-              const installerCertRes = await asc('POST', '/certificates', {
-                data: {
-                  type: 'certificates',
-                  attributes: { csrContent, certificateType: 'MAC_INSTALLER_DISTRIBUTION' },
-                },
-              });
-              const installerCertId = installerCertRes.data.id;
-              fs.writeFileSync(cerPath, Buffer.from(installerCertRes.data.attributes.certificateContent, 'base64'));
-              execFileSync('openssl', ['x509', '-inform', 'DER', '-in', cerPath, '-out', pemPath]);
-              execFileSync('openssl', [
-                'pkcs12', '-export', '-out', p12Path, '-inkey', keyPath, '-in', pemPath,
-                '-passout', `pass:${process.env.KEYCHAIN_PASS}`,
-              ]);
-              execFileSync('security', [
-                'import', p12Path, '-P', process.env.KEYCHAIN_PASS, '-A', '-t', 'cert', '-f', 'pkcs12',
-                '-k', process.env.KEYCHAIN_PATH,
-              ]);
-              execFileSync('security', [
-                'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:,productsign:',
-                '-s', '-k', process.env.KEYCHAIN_PASS, process.env.KEYCHAIN_PATH,
-              ]);
-              fs.appendFileSync(process.env.GITHUB_ENV, `MAC_INSTALLER_CERT_ID=${installerCertId}\n`);
-              console.log(`Temporary Mac Installer Distribution certificate ready: ${installerCertId}`);
             }
           })().catch((err) => {
             console.error(`::error::${err.message}`);
@@ -490,7 +454,20 @@ jobs:
               `CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\t"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "${process.env.MAC_PROFILE_NAME}";\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
             );
           }
-          fs.writeFileSync(pbxPath, pbx);
+            const entitlementsPath = 'App/App.entitlements';
+            if (!fs.existsSync(entitlementsPath)) {
+              fs.writeFileSync(
+                entitlementsPath,
+                `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>com.apple.security.app-sandbox</key>\n\t<true/>\n\t<key>com.apple.security.network.client</key>\n\t<true/>\n</dict>\n</plist>\n`
+              );
+            }
+            if (!pbx.includes('CODE_SIGN_ENTITLEMENTS')) {
+              pbx = pbx.replace(
+                /PRODUCT_BUNDLE_IDENTIFIER = de\.goork\.plinglist;/g,
+                `CODE_SIGN_ENTITLEMENTS = App/App.entitlements;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = de.goork.plinglist;`
+              );
+            }
+            fs.writeFileSync(pbxPath, pbx);
 
           const podsPath = 'Pods/Pods.xcodeproj/project.pbxproj';
           if (fs.existsSync(podsPath)) {
@@ -535,6 +512,8 @@ jobs:
             <string>manual</string>
             <key>signingCertificate</key>
             <string>Apple Distribution</string>
+            <key>installerSigningCertificate</key>
+            <string>3rd Party Mac Developer Installer</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>${APP_BUNDLE_ID}</key>
@@ -568,24 +547,5 @@ jobs:
 
       - name: Cleanup Keys
         if: always()
-        env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
         run: |
-          if [ -n "${MAC_INSTALLER_CERT_ID:-}" ] && [ -n "${ASC_KEY_ID:-}" ]; then
-            node - <<'EOF' || true
-          const crypto = require('node:crypto');
-          const now = Math.floor(Date.now() / 1000);
-          const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-          const s = `${b64u({ alg: 'ES256', kid: process.env.ASC_KEY_ID, typ: 'JWT' })}.${b64u({ iss: process.env.ASC_ISSUER_ID, iat: now, exp: now + 300, aud: 'appstoreconnect-v1' })}`;
-          const sig = crypto.sign('sha256', Buffer.from(s), { key: process.env.ASC_API_KEY_P8, dsaEncoding: 'ieee-p1363' });
-          (async () => {
-            await fetch(`https://api.appstoreconnect.apple.com/v1/certificates/${process.env.MAC_INSTALLER_CERT_ID}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${s}.${sig.toString('base64url')}` },
-            });
-          })().catch(() => {});
-          EOF
-          fi
-          rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/dist-re.p12" "$RUNNER_TEMP/dist.pem" "$RUNNER_TEMP"/mac_installer.* ~/.appstoreconnect/private_keys
+          rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/dist.p12" "$RUNNER_TEMP/dist-re.p12" "$RUNNER_TEMP/dist.pem" ~/.appstoreconnect/private_keys
