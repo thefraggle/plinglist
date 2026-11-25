@@ -1,0 +1,313 @@
+name: Build & Upload iOS / macOS (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_platform:
+        description: 'Target Apple platform to build & upload'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - ios
+          - macos
+      build_number:
+        description: 'CFBundleVersion build number (must increase per App Store upload)'
+        required: true
+        default: '1'
+        type: string
+      upload_to_appstore:
+        description: 'Upload signed archive(s) to App Store Connect / TestFlight'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-apple:
+    name: Archive & Upload (${{ inputs.target_platform }})
+    runs-on: macos-15
+    env:
+      APP_BUNDLE_ID: de.goork.plinglist
+      APPLE_TEAM_ID: 296C735W8C
+
+    steps:
+      - name: Checkout Plinglist
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout Private Cloud Overlay (optional)
+        if: ${{ secrets.CLOUD_SSH_KEY != '' }}
+        env:
+          CLOUD_SSH_KEY: ${{ secrets.CLOUD_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          (umask 077 && echo "$CLOUD_SSH_KEY" > ~/.ssh/plinglist_cloud_key)
+          ssh-keyscan -p 2222 forgejo.goork.de >> ~/.ssh/known_hosts 2>/dev/null || true
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/plinglist_cloud_key -o IdentitiesOnly=yes" \
+            git clone ssh://git@forgejo.goork.de:2222/thefraggle/plinglist-cloud.git cloud || true
+          rm -f ~/.ssh/plinglist_cloud_key
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply Overlay (if present), Build & Test
+        run: |
+          if [ -d cloud/scripts ]; then
+            node cloud/scripts/generate-brand-icons.mjs || true
+            bash cloud/scripts/apply-brand-overlay.sh || true
+          fi
+          npm run build
+          npm test
+
+      - name: Initialize & Sync Capacitor 7 iOS Project (iOS + Mac Catalyst)
+        run: |
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7
+          npx cap add ios
+          if [ -d cloud/scripts ]; then
+            bash cloud/scripts/apply-brand-overlay.sh || true
+          fi
+          if [ ! -f ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png ]; then
+            node - <<'EOF'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const zlib = require('node:zlib');
+          const size = 1024;
+          const BG = [13, 107, 88];
+          const FG = [255, 255, 255];
+          const A = { x: 18 / 64, y: 33.5 / 64 };
+          const B = { x: 27.5 / 64, y: 43 / 64 };
+          const C = { x: 46.5 / 64, y: 22 / 64 };
+          const R = 3.25 / 64;
+          const dist = (px, py, ax, ay, bx, by) => {
+            const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy;
+            const t = l === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l));
+            return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+          };
+          const tbl = new Uint32Array(256);
+          for (let n = 0; n < 256; n += 1) {
+            let c = n;
+            for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+            tbl[n] = c >>> 0;
+          }
+          const crc = (b) => {
+            let c = 0xffffffff;
+            for (let i = 0; i < b.length; i += 1) c = tbl[(c ^ b[i]) & 0xff] ^ (c >>> 8);
+            return (c ^ 0xffffffff) >>> 0;
+          };
+          const chunk = (t, d) => {
+            const tb = Buffer.from(t, 'ascii'), lb = Buffer.alloc(4), cb = Buffer.alloc(4);
+            lb.writeUInt32BE(d.length, 0);
+            cb.writeUInt32BE(crc(Buffer.concat([tb, d])), 0);
+            return Buffer.concat([lb, tb, d, cb]);
+          };
+          const stride = 1 + size * 3, raw = Buffer.alloc(stride * size), aa = 1.2 / size;
+          for (let y = 0; y < size; y += 1) {
+            const ro = y * stride; raw[ro] = 0; const ny = (y + 0.5) / size;
+            for (let x = 0; x < size; x += 1) {
+              const nx = (x + 0.5) / size;
+              const d = Math.min(dist(nx, ny, A.x, A.y, B.x, B.y), dist(nx, ny, B.x, B.y, C.x, C.y)) - R;
+              const a = Math.max(0, Math.min(1, 0.5 - d / aa));
+              const po = ro + 1 + x * 3;
+              raw[po] = Math.round(BG[0] + (FG[0] - BG[0]) * a);
+              raw[po + 1] = Math.round(BG[1] + (FG[1] - BG[1]) * a);
+              raw[po + 2] = Math.round(BG[2] + (FG[2] - BG[2]) * a);
+            }
+          }
+          const ihdr = Buffer.alloc(13);
+          ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 2;
+          const png = Buffer.concat([
+            Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+            chunk('IHDR', ihdr),
+            chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
+            chunk('IEND', Buffer.alloc(0)),
+          ]);
+          const dir = path.resolve('ios/App/App/Assets.xcassets/AppIcon.appiconset');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, 'AppIcon-1024.png'), png);
+          fs.writeFileSync(path.join(dir, 'Contents.json'), JSON.stringify({
+            images: [{ filename: 'AppIcon-1024.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }],
+            info: { author: 'xcode', version: 1 }
+          }, null, 2));
+          EOF
+          fi
+          npx cap sync ios
+
+      - name: Configure Bundle ID, Version, URL Scheme & Mac Catalyst
+        run: |
+          APP_VERSION=$(node -p "require('./package.json').version")
+          PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+          INFO_PLIST="ios/App/App/Info.plist"
+
+          sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = ${APP_VERSION};/g" "$PBXPROJ"
+          sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = ${{ inputs.build_number }};/g" "$PBXPROJ"
+          sed -i '' "s/SUPPORTS_MACCATALYST = NO;/SUPPORTS_MACCATALYST = YES;/g" "$PBXPROJ" || true
+          if ! grep -q "SUPPORTS_MACCATALYST" "$PBXPROJ"; then
+            sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = /DEVELOPMENT_TEAM = ${APPLE_TEAM_ID};\n\t\t\t\tSUPPORTS_MACCATALYST = YES;\n\t\t\t\tSUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = /g" "$PBXPROJ"
+          fi
+
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string ${APP_BUNDLE_ID}" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string plinglist" "$INFO_PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST" 2>/dev/null || true
+
+      - name: Select Latest Xcode
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            sudo xcode-select -s "$LATEST_XCODE"
+          fi
+          xcodebuild -version | head -n 1
+
+      - name: Install Apple Distribution Certificate & Optional Profiles
+        if: ${{ inputs.upload_to_appstore }}
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$BUILD_CERTIFICATE_BASE64" ] || [ -z "$P12_PASSWORD" ]; then
+            echo "::error::Missing BUILD_CERTIFICATE_BASE64 or P12_PASSWORD secret!"
+            exit 1
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASS="$(openssl rand -hex 16)"
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+
+          if [ -n "$BUILD_PROVISION_PROFILE_BASE64" ]; then
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+            echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
+            UUID=$(security cms -D -i "$PP_PATH" | plutil -extract UUID raw -)
+            cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"${UUID}".mobileprovision
+          fi
+
+      - name: Prepare App Store Connect API Key & ExportOptions
+        if: ${{ inputs.upload_to_appstore }}
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_API_KEY_P8" ]; then
+            echo "::error::Missing APP_STORE_CONNECT_KEY_ID / ISSUER_ID / API_KEY_P8 secrets!"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          (umask 077 && echo "$ASC_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8")
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Archive & Upload iOS (iPhone / iPad)
+        if: ${{ inputs.target_platform == 'all' || inputs.target_platform == 'ios' }}
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
+            xcodebuild archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination "generic/platform=iOS" \
+              -archivePath "$RUNNER_TEMP/Plinglist-iOS.xcarchive" \
+              DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+              -authenticationKeyID "${ASC_KEY_ID}" \
+              -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
+            xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/Plinglist-iOS.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+              -exportPath "$RUNNER_TEMP/export-ios" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+              -authenticationKeyID "${ASC_KEY_ID}" \
+              -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
+          else
+            xcodebuild archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination "generic/platform=iOS" \
+              -archivePath "$RUNNER_TEMP/Plinglist-iOS.xcarchive" \
+              CODE_SIGNING_ALLOWED=NO
+          fi
+
+      - name: Archive & Upload macOS (Mac Catalyst)
+        if: ${{ inputs.target_platform == 'all' || inputs.target_platform == 'macos' }}
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          if [ "${{ inputs.upload_to_appstore }}" = "true" ]; then
+            xcodebuild archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination "generic/platform=macOS,variant=Mac Catalyst" \
+              -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
+              DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+              -authenticationKeyID "${ASC_KEY_ID}" \
+              -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
+            xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+              -exportPath "$RUNNER_TEMP/export-macos" \
+              -allowProvisioningUpdates \
+              -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+              -authenticationKeyID "${ASC_KEY_ID}" \
+              -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
+          else
+            xcodebuild archive \
+              -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination "generic/platform=macOS,variant=Mac Catalyst" \
+              -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
+              CODE_SIGNING_ALLOWED=NO
+          fi
+
+      - name: Cleanup Keys
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/dist.p12"
