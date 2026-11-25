@@ -107,27 +107,16 @@ function playSynthChime(ctx: AudioContext): void {
   let startTime = ctx.currentTime;
   for (const note of CC0_CHIME_NOTES) {
     const osc = ctx.createOscillator();
-    const harmonic = ctx.createOscillator();
     const gain = ctx.createGain();
-    const harmonicGain = ctx.createGain();
     osc.type = 'sine';
-    harmonic.type = 'triangle';
     osc.frequency.setValueAtTime(note.frequencyHz, startTime);
-    harmonic.frequency.setValueAtTime(note.frequencyHz * 2, startTime);
     gain.gain.setValueAtTime(0.001, startTime);
-    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.008);
+    gain.gain.exponentialRampToValueAtTime(note.gain, startTime + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.durationMs / 1000);
-    harmonicGain.gain.setValueAtTime(0.001, startTime);
-    harmonicGain.gain.exponentialRampToValueAtTime(note.gain * 0.25, startTime + 0.006);
-    harmonicGain.gain.exponentialRampToValueAtTime(0.0001, startTime + (note.durationMs * 0.65) / 1000);
     osc.connect(gain);
-    harmonic.connect(harmonicGain);
     gain.connect(ctx.destination);
-    harmonicGain.connect(ctx.destination);
     osc.start(startTime);
-    harmonic.start(startTime);
     osc.stop(startTime + note.durationMs / 1000);
-    harmonic.stop(startTime + note.durationMs / 1000);
     startTime += 0.055;
   }
 }
