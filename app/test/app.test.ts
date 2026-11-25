@@ -963,3 +963,56 @@ test('syncWithServer does not skip tasks created while an earlier sync request i
     repo.close();
   }
 });
+
+test('two-window pairing flow syncs second window tasks back to window 1 live and after reload', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    // Window 1 starts, creates "test", and syncs
+    const window1Storage = createMemoryStorage();
+    const window1 = new PlinglistStore({ storage: window1Storage, locale: 'en', serverUrl });
+    window1.addTask({ listId: window1.getDefaultTasksListId(), title: 'test' });
+    assert.equal((await window1.syncWithServer()).synced, true);
+    const snapshotBeforeSecondTask = window1Storage.getItem('plinglist.local.v1')!;
+    const pairUrl = window1.getPairingUrl(OFFICIAL_APP_ORIGIN);
+
+    // Window 2 opens as a fresh session with ?pair=, adopts the workspace, pulls "test", adds "zwei", and syncs
+    const window2 = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    window2.setSyncKey(pairUrl, { forceReset: true });
+    assert.equal((await window2.syncWithServer()).synced, true);
+    assert.ok(window2.tasks.some((t) => t.title === 'test'));
+    assert.equal(window2.getDefaultTasksListId(), window1.getDefaultTasksListId());
+
+    window2.addTask({ listId: window2.getDefaultTasksListId(), title: 'zwei' });
+    assert.equal((await window2.syncWithServer()).synced, true);
+
+    // Live sync in Window 1 pulls "zwei"
+    const liveSync = await window1.syncWithServer();
+    assert.equal(liveSync.synced, true);
+    assert.ok(window1.tasks.some((t) => t.title === 'zwei'));
+
+    // Reloaded Window 1 (cursorHlc persisted before "zwei", lastPushedHlc null) also pulls "zwei"
+    const window1ReloadedStorage = createMemoryStorage();
+    window1ReloadedStorage.setItem('plinglist.local.v1', snapshotBeforeSecondTask);
+
+    const window1Reloaded = new PlinglistStore({
+      storage: window1ReloadedStorage,
+      locale: 'en',
+      serverUrl,
+    });
+    assert.equal(window1Reloaded.tasks.some((t) => t.title === 'zwei'), false);
+    const reloadSync = await window1Reloaded.syncWithServer();
+    assert.equal(reloadSync.synced, true);
+    assert.ok(window1Reloaded.tasks.some((t) => t.title === 'zwei'));
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

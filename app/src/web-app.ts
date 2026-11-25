@@ -363,7 +363,7 @@ function initApp(): void {
         }
       }
     }
-    if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+    if (!store.getActiveLists().some((l) => l.id === activeListId)) {
       activeListId = store.getDefaultTasksListId();
     }
   }
@@ -1700,7 +1700,16 @@ function initApp(): void {
   }, 15_000);
 
   if ('serviceWorker' in navigator) {
-    void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloadingForSwUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloadingForSwUpdate) return;
+      reloadingForSwUpdate = true;
+      window.location.reload();
+    });
+    void navigator.serviceWorker
+      .register('./sw.js', { updateViaCache: 'none' })
+      .catch(() => undefined);
   }
 
   async function handleIncomingDeepLinkUrl(rawUrl: string): Promise<void> {
@@ -1802,21 +1811,13 @@ function initApp(): void {
   }
 
   async function handleJoinParamOnStartup(): Promise<void> {
-    try {
-      const launchData = await capacitorAppPlugin?.getLaunchUrl?.();
-      if (typeof launchData?.url === 'string' && launchData.url.trim()) {
-        await handleIncomingDeepLinkUrl(launchData.url);
-      }
-    } catch {
-      // Ignore platforms where App.getLaunchUrl is unavailable
-    }
-
     const params = new URLSearchParams(window.location.search);
     const legalParam = params.get('legal');
     if (legalParam === 'imprint' || legalParam === 'privacy') {
       openLegalModal(legalParam);
     }
 
+    let didStartupSync = false;
     const pairKey = params.get('pair');
     if (pairKey) {
       showNativeAppHandoff('pair', pairKey);
@@ -1825,10 +1826,12 @@ function initApp(): void {
       const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
       window.history.replaceState({}, '', cleanUrl);
       try {
+        // Apply syncKey synchronously before any await so focus/visibility listeners never sync the throwaway key.
         store.setSyncKey(pairKey, { forceReset: true });
         await store.syncWithServer();
         selectBestViewAfterPairing();
         hasSyncedOnce = true;
+        didStartupSync = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
         render();
@@ -1837,9 +1840,21 @@ function initApp(): void {
       }
     }
 
+    try {
+      const launchData = await capacitorAppPlugin?.getLaunchUrl?.();
+      if (typeof launchData?.url === 'string' && launchData.url.trim()) {
+        await handleIncomingDeepLinkUrl(launchData.url);
+        didStartupSync = true;
+      }
+    } catch {
+      // Ignore platforms where App.getLaunchUrl is unavailable
+    }
+
     const joinToken = params.get('join');
     if (!joinToken) {
-      void runSyncNow();
+      if (!didStartupSync) {
+        void runSyncNow();
+      }
       return;
     }
     showNativeAppHandoff('join', joinToken);

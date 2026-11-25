@@ -1,4 +1,4 @@
-const CACHE_NAME = 'plinglist-app-v20';
+const CACHE_NAME = 'plinglist-app-v0.1.22';
 const ASSETS = [
   './',
   './index.html',
@@ -20,7 +20,19 @@ const ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(() => undefined),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) =>
+        Promise.all(
+          ASSETS.map((asset) =>
+            fetch(new Request(asset, { cache: 'no-cache' })).then((res) => {
+              if (res.ok) return cache.put(asset, res);
+              return undefined;
+            }),
+          ),
+        ),
+      )
+      .catch(() => undefined),
   );
   self.skipWaiting();
 });
@@ -37,10 +49,33 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/join/')) {
+  if (url.origin !== self.location.origin) return;
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/join/') ||
+    url.pathname.startsWith('/.well-known/')
+  ) {
     return;
   }
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((cached) => cached ?? fetch(event.request)),
+    (async () => {
+      try {
+        const networkResponse = await fetch(event.request, { cache: 'no-cache' });
+        if (networkResponse.ok && !url.searchParams.has('pair') && !url.searchParams.has('join')) {
+          const cache = await caches.open(CACHE_NAME);
+          const cacheKey = url.pathname === '/' ? './' : event.request;
+          void cache.put(cacheKey, networkResponse.clone());
+        }
+        return networkResponse;
+      } catch {
+        const cached = await caches.match(event.request, { ignoreSearch: true });
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') {
+          const fallback = await caches.match('./index.html');
+          if (fallback) return fallback;
+        }
+        throw new Error('Network error and no cached response');
+      }
+    })(),
   );
 });

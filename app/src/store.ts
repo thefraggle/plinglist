@@ -172,7 +172,10 @@ export class PlinglistStore {
   }
 
   private seedDefaults(hlcOverride?: HlcTimestamp): void {
-    const nowIso = new Date().toISOString();
+    const timestampIso =
+      hlcOverride === '000000000000000:00000:init'
+        ? '1970-01-01T00:00:00.000Z'
+        : new Date().toISOString();
     const hlc = hlcOverride ?? this.clock.now();
     const suffix = deriveWorkspaceSuffix(this.syncKey);
     this.lists = [
@@ -181,8 +184,8 @@ export class PlinglistStore {
         title: this.locale === 'de' ? 'Aufgaben' : 'Tasks',
         shared: false,
         inviteToken: null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
+        createdAt: timestampIso,
+        updatedAt: timestampIso,
         deletedAt: null,
         hlc,
       },
@@ -191,8 +194,8 @@ export class PlinglistStore {
         title: this.locale === 'de' ? 'Einkauf' : 'Groceries',
         shared: false,
         inviteToken: null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
+        createdAt: timestampIso,
+        updatedAt: timestampIso,
         deletedAt: null,
         hlc,
       },
@@ -953,7 +956,7 @@ export class PlinglistStore {
           listIds: this.lists.map((l) => l.id),
           clientLists,
           clientTasks,
-          sinceHlc: this.cursorHlc,
+          sinceHlc: sendFullSnapshot ? null : this.cursorHlc,
         }),
       });
       if (!response.ok) {

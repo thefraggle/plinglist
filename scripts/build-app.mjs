@@ -5,6 +5,7 @@ import zlib from 'node:zlib';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DIST_DIR = path.join(ROOT, 'app', 'dist');
+const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -69,7 +70,12 @@ copyStaticFile('app/index.html', 'index.html');
 copyStaticFile('app/styles.css', 'styles.css');
 copyStaticFile('app/favicon.svg', 'favicon.svg');
 copyStaticFile('app/manifest.webmanifest', 'manifest.webmanifest');
-copyStaticFile('app/sw.js', 'sw.js');
+const swTemplate = fs.readFileSync(path.join(ROOT, 'app', 'sw.js'), 'utf8');
+const swStamped = swTemplate.replace(
+  /const CACHE_NAME = ['"][^'"]+['"];/,
+  `const CACHE_NAME = 'plinglist-app-v${PKG.version}';`,
+);
+fs.writeFileSync(path.join(DIST_DIR, 'sw.js'), swStamped, 'utf8');
 copyDirectoryRecursive(path.join(ROOT, 'app', 'public'), DIST_DIR);
 
 if (!fs.existsSync(path.join(DIST_DIR, 'og-image.png'))) {

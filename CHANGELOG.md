@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.22] - 2026-11-25
+
+### Deutsch
+- Zuverlässigere Synchronisation nach dem Koppeln: Neue Aufgaben von einem gekoppelten Gerät erscheinen jetzt auch beim Neuladen sofort auf allen verbundenen Geräten.
+- Automatische Aktualisierung der App-Oberfläche beim Bereitstellen neuer Versionen, damit keine veralteten Zwischenspeicherstände aktiv bleiben.
+
+### English
+- More reliable sync after pairing: New tasks added on a paired device now appear reliably across all connected devices, including after a reload.
+- Automatic refresh of cached app assets when new updates are released so older versions do not stay active.
+
 ## [0.1.21] - 2026-11-25
 
 ### Deutsch

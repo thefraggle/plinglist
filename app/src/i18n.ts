@@ -169,7 +169,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.21 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.22 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -361,7 +361,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.21 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.22 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

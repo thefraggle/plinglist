@@ -507,7 +507,11 @@ export function createServerApp(
           return;
         }
         const isMutableEntry =
-          ext === '.html' || path.basename(targetFile) === 'sw.js' || ext === '.webmanifest';
+          ext === '.html' ||
+          ext === '.js' ||
+          ext === '.css' ||
+          path.basename(targetFile) === 'sw.js' ||
+          ext === '.webmanifest';
         res.writeHead(200, {
           ...SECURITY_HEADERS,
           'Content-Type': contentType,
