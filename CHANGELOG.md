@@ -2,12 +2,12 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
-## [0.1.19] - 2026-11-24
+## [0.1.19] - 2026-11-25
 
 ### Added
-- **iOS & macOS App Preparation (`capacitor.config.json`, `.github/workflows/build-ios-macos.yml`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/index.html`, `app/styles.css`):**
-  - Added Capacitor 7 configuration (`de.goork.plinglist`, `webDir: app/dist`, custom scheme `Plinglist`) and manual `workflow_dispatch` CI workflow for archiving/uploading iOS & Mac Catalyst builds to App Store Connect.
-  - Added `isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, and `extractInviteTokenFromInput()` so native iOS/macOS WebViews sync against the configured backend, emit clean `https://plinglist.app/?join=` / `?pair=` share links, accept pasted `?pair=` / `?join=` URLs directly in-app, and handle incoming `plinglist://` deep links.
+- **iOS, macOS & Android App Support (`capacitor.config.json`, `.github/workflows/build-ios-macos.yml`, `.github/workflows/build-android.yml`, `app/src/config.ts`, `app/src/store.ts`, `app/src/web-app.ts`, `app/index.html`, `app/styles.css`):**
+  - Added Capacitor 7 configuration (`de.goork.plinglist`, `webDir: app/dist`, iOS custom scheme `Plinglist`, Android `allowMixedContent: false`) and manual `workflow_dispatch` CI workflows for archiving/signing/uploading iOS, Mac Catalyst (`.pkg`), and Android (`.apk` & `.aab`) builds to App Store Connect / TestFlight and Google Play.
+  - Added `isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, and `extractInviteTokenFromInput()` so native iOS, macOS, and Android (`https://localhost`) WebViews sync against the configured backend, emit clean `https://plinglist.app/?join=` / `?pair=` share links, accept pasted `?pair=` / `?join=` URLs directly in-app, and handle incoming `plinglist://` deep links.
   - Added `#joinSharedListForm` in `#shareDialog`, `apple-mobile-web-app-*` PWA meta tags in `app/index.html`, and `env(safe-area-inset-top)` padding on `.sidebar` / `.main-view`.
 
 ### Changed

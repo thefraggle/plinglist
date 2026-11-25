@@ -13,7 +13,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 - **6 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), *All / Alle*, *Tasks / Aufgaben*, and *Custom & Shared Lists* (`?join=`), plus debounced live search (`?q=`) and URL state persistence (`?view=`).
 - **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), automatic GDPR tombstone content scrubbing on delete, and 1-click workspace erasure (`DELETE /api/v1/sync`).
 - **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON & CSV)**.
-- **Open Core, Web/PWA & Native Apple Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 preparation for iOS, iPadOS, and macOS (Mac Catalyst).
+- **Open Core, Web/PWA & Native Apple / Android Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 preparation for iOS, iPadOS, macOS (Mac Catalyst), and Android.
 
 ---
 
@@ -21,7 +21,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** 
 
 ```text
 plinglist/
-├── .github/workflows/   # Manual iOS & macOS App Store workflow (workflow_dispatch)
+├── .github/workflows/   # Manual Apple (build-ios-macos.yml) & Android (build-android.yml) workflows
 ├── packages/core/       # HLC clock, field-level LWW merge, view/search selectors & JSON/CSV importers
 ├── server/              # Node 22 HTTP static + SQLite WAL sync server & invite endpoints
 │   └── src/
@@ -31,14 +31,29 @@ plinglist/
 │       └── sync-engine.ts
 ├── app/                 # Bilingual local-first Web-App & PWA (index.html, styles.css, store.ts, web-app.ts)
 ├── scripts/             # Zero-dependency TypeScript-stripping build script (build-app.mjs)
-├── capacitor.config.json # Capacitor 7 native iOS & macOS configuration (app/dist -> de.goork.plinglist)
+├── capacitor.config.json # Capacitor 7 native iOS, macOS & Android configuration (app/dist -> de.goork.plinglist)
 ├── ARCHITECTURE.md      # Technical architecture, HLC sync & SQLite WAL schema
 ├── CHANGELOG.md
 ├── Dockerfile
 └── docker-compose.yml
 ```
 
-*(Note: Official managed cloud billing, push notification relay, and protected brand assets reside in the private `plinglist-cloud` repository under `./cloud/`, which is gitignored here.)*
+*(Note: Official managed cloud billing, push notification relay, store metadata/screenshot generators, and protected brand assets reside in the private `plinglist-cloud` repository under `./cloud/`, which is gitignored here.)*
+
+---
+
+## Native Mobile & Desktop Builds (iOS, iPadOS, macOS & Android)
+
+To keep the public open-core repository lightweight and dependency-free (`npm test` / Docker builds never require Xcode or Android SDK), the native `ios/` and `android/` Capacitor shells are generated on demand from [capacitor.config.json](capacitor.config.json) and `app/dist/` via `.github/workflows/build-ios-macos.yml` and `.github/workflows/build-android.yml`:
+
+```bash
+npm run build
+npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7
+npx cap add ios && npx cap sync ios
+npx cap add android && npx cap sync android
+```
+
+All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, `extractInviteTokenFromInput()`, and `plinglist://` deep-link handling) is part of the public `app/` codebase. For public forks or redistributed binaries, follow [TRADEMARK.md](TRADEMARK.md) and choose your own app ID, icons, and branding.
 
 ---
 
