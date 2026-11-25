@@ -171,9 +171,9 @@ export class PlinglistStore {
     }
   }
 
-  private seedDefaults(): void {
+  private seedDefaults(hlcOverride?: HlcTimestamp): void {
     const nowIso = new Date().toISOString();
-    const hlc = this.clock.now();
+    const hlc = hlcOverride ?? this.clock.now();
     const suffix = deriveWorkspaceSuffix(this.syncKey);
     this.lists = [
       {
@@ -844,21 +844,11 @@ export class PlinglistStore {
     this.cursorHlc = null;
     this.lastPushedHlc = null;
 
-    this.consolidateWorkspaceLists();
     if (clean !== prevSyncKey) {
-      const nowIso = new Date().toISOString();
-      for (const list of this.lists) {
-        if (list.deletedAt === null) {
-          list.hlc = this.clock.now();
-          list.updatedAt = nowIso;
-        }
-      }
-      for (const task of this.tasks) {
-        if (task.deletedAt === null) {
-          task.hlc = this.clock.now();
-          task.updatedAt = nowIso;
-        }
-      }
+      this.tasks = [];
+      this.seedDefaults('000000000000000:00000:init');
+    } else {
+      this.consolidateWorkspaceLists();
     }
 
     this.persist();
@@ -938,13 +928,14 @@ export class PlinglistStore {
       ? this.tasks
       : this.tasks.filter((t) => compareHlc(t.hlc, pushedThreshold!) > 0);
 
+    const requestSyncKey = this.syncKey;
     try {
       const response = await fetchFn(`${this.serverUrl}/api/v1/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: this.userId,
-          syncKey: this.syncKey,
+          syncKey: requestSyncKey,
           inviteTokens,
           listIds: this.lists.map((l) => l.id),
           clientLists,
@@ -961,6 +952,9 @@ export class PlinglistStore {
         revokedListIds?: string[];
         cursorHlc: HlcTimestamp | null;
       };
+      if (this.syncKey !== requestSyncKey) {
+        return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
+      }
       const applied = this.applyServerSync(data);
       let maxHlc = this.lastPushedHlc;
       const bump = (candidate: HlcTimestamp | null | undefined): void => {

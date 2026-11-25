@@ -873,3 +873,47 @@ test('native shell origin helpers, share base origin, and ?pair= / ?join= input 
     repo.close();
   }
 });
+
+test('setSyncKey via pairing URL cleanly replaces existing throwaway session with web session', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    // Web session creates custom list, tasks, and shares groceries
+    const webApp = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    const webCustom = webApp.addList('Büro');
+    webApp.addTask({ listId: webApp.getDefaultTasksListId(), title: 'Web Task 1', starred: true });
+    webApp.addTask({ listId: webCustom.id, title: 'Steuerbelege sortieren' });
+    await webApp.syncWithServer();
+
+    // Android app already opened earlier and created local test tasks on its own initial syncKey
+    const androidApp = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    const localThrowawayList = androidApp.addList('Lokaler Test');
+    androidApp.addTask({ listId: localThrowawayList.id, title: 'Alter lokaler Task' });
+    androidApp.addTask({ listId: androidApp.getDefaultTasksListId(), title: 'Throwaway Default Task' });
+    await androidApp.syncWithServer();
+
+    // Tapping webApp's ?pair= link adopts webApp's workspace completely
+    androidApp.setSyncKey(webApp.getPairingUrl(OFFICIAL_APP_ORIGIN));
+    const syncRes = await androidApp.syncWithServer();
+    assert.equal(syncRes.synced, true);
+    assert.equal(androidApp.syncKey, webApp.syncKey);
+
+    assert.equal(androidApp.tasks.some((t) => t.title === 'Alter lokaler Task'), false);
+    assert.equal(androidApp.tasks.some((t) => t.title === 'Throwaway Default Task'), false);
+    assert.equal(androidApp.getActiveLists().some((l) => l.title === 'Lokaler Test'), false);
+
+    assert.ok(androidApp.getActiveLists().some((l) => l.title === 'Büro'));
+    assert.ok(androidApp.tasks.some((t) => t.title === 'Web Task 1' && t.starred));
+    assert.ok(androidApp.tasks.some((t) => t.title === 'Steuerbelege sortieren'));
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

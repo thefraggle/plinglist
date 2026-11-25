@@ -19,6 +19,7 @@ import {
   extractInviteTokenFromInput,
   extractSyncKeyFromInput,
   getShareBaseOrigin,
+  isNativeShellOrigin,
 } from './config.ts';
 import { t, type TranslationKey } from './i18n.ts';
 import { PlinglistStore, getLocalIsoDate } from './store.ts';
@@ -1188,6 +1189,24 @@ function initApp(): void {
     btn.dataset.loading = 'true';
     btn.disabled = true;
     try {
+      const looksLikePairing =
+        rawValue.includes('pair=') ||
+        rawValue.includes('key=') ||
+        extractSyncKeyFromInput(rawValue).startsWith('pling-');
+      if (looksLikePairing) {
+        store.setSyncKey(rawValue);
+        await store.syncWithServer();
+        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+          activeListId = store.getDefaultTasksListId();
+        }
+        hasSyncedOnce = true;
+        input.value = '';
+        trackDiagnostic('device_paired');
+        await closeTopLayer(shareDialog);
+        showToast(t(store.locale, 'toast.devicePaired'));
+        render();
+        return;
+      }
       const joinedList = await store.joinSharedListByToken(rawValue);
       hasSyncedOnce = true;
       activeView = 'lists';
@@ -1556,6 +1575,9 @@ function initApp(): void {
     try {
       store.setSyncKey(nextSyncKey);
       if (nextSyncKey.trim() !== prevSyncKey) {
+        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+          activeListId = store.getDefaultTasksListId();
+        }
         trackDiagnostic('device_paired');
       }
     } catch {
@@ -1650,6 +1672,9 @@ function initApp(): void {
       try {
         store.setSyncKey(extractSyncKeyFromInput(trimmed));
         await store.syncWithServer();
+        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+          activeListId = store.getDefaultTasksListId();
+        }
         hasSyncedOnce = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
@@ -1705,15 +1730,6 @@ function initApp(): void {
       void handleIncomingDeepLinkUrl(data.url);
     }
   });
-  void capacitorAppPlugin
-    ?.getLaunchUrl?.()
-    .then((launchData) => {
-      if (typeof launchData?.url === 'string') {
-        return handleIncomingDeepLinkUrl(launchData.url);
-      }
-      return undefined;
-    })
-    .catch(() => undefined);
 
   function showNativeAppHandoff(kind: 'pair' | 'join', value: string): void {
     if (
@@ -1737,6 +1753,15 @@ function initApp(): void {
   }
 
   async function handleJoinParamOnStartup(): Promise<void> {
+    try {
+      const launchData = await capacitorAppPlugin?.getLaunchUrl?.();
+      if (typeof launchData?.url === 'string' && launchData.url.trim()) {
+        await handleIncomingDeepLinkUrl(launchData.url);
+      }
+    } catch {
+      // Ignore platforms where App.getLaunchUrl is unavailable
+    }
+
     const params = new URLSearchParams(window.location.search);
     const legalParam = params.get('legal');
     if (legalParam === 'imprint' || legalParam === 'privacy') {
@@ -1753,6 +1778,9 @@ function initApp(): void {
       try {
         store.setSyncKey(pairKey);
         await store.syncWithServer();
+        if (activeView === 'lists' && !store.getActiveLists().some((l) => l.id === activeListId)) {
+          activeListId = store.getDefaultTasksListId();
+        }
         hasSyncedOnce = true;
         trackDiagnostic('device_paired');
         showToast(t(store.locale, 'toast.devicePaired'));
