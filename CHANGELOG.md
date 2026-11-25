@@ -2,17 +2,25 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.26] - 2026-11-25
+
+### Deutsch
+- Überarbeitete Oberfläche: Klarere Suchleiste, kompaktes Fälligkeitsdatum-Feld, aufgeräumter Bereich für erledigte Aufgaben, einheitliche Stern-Symbole und mobilfreundliche Dialog-Ansichten.
+- Direkteres Öffnen von Einladungs- und Kopplungslinks ohne störenden Zwischenhinweis.
+
+### English
+- Refined interface: Cleaner search bar, compact due-date chip, streamlined completed-tasks section, unified star icons, and mobile-friendly bottom-sheet dialogs.
+- Cleaner opening of invite and pairing links without intrusive handoff banners.
+
 ## [0.1.25] - 2026-11-25
 
 ### Deutsch
 - Anonyme Diagnosedaten und Datenschutzerklärungen vereinheitlicht (jederzeit in den Einstellungen deaktivierbar).
 - Zuverlässigere Übermittlung anonymer Nutzungszähler bei Verbindung mit der offiziellen Cloud.
-- Überarbeitete Oberfläche: Klarere Suchleiste, kompaktes Fälligkeitsdatum-Feld, aufgeräumter Bereich für erledigte Aufgaben, einheitliche Stern-Symbole und mobilfreundliche Dialog-Ansichten.
 
 ### English
 - Unified anonymous diagnostics and updated privacy disclosures (always opt-out capable in Settings).
 - More reliable delivery of anonymous usage counters when connected to the official cloud.
-- Refined interface: Cleaner search bar, compact due-date chip, streamlined completed-tasks section, unified star icons, and mobile-friendly bottom-sheet dialogs.
 
 ## [0.1.24] - 2026-11-25
 
