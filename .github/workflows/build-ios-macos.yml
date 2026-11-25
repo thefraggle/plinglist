@@ -45,16 +45,19 @@ jobs:
           persist-credentials: false
 
       - name: Checkout Private Cloud Overlay (optional)
-        if: ${{ secrets.CLOUD_SSH_KEY != '' }}
         env:
           CLOUD_SSH_KEY: ${{ secrets.CLOUD_SSH_KEY }}
         run: |
-          mkdir -p ~/.ssh
-          (umask 077 && echo "$CLOUD_SSH_KEY" > ~/.ssh/plinglist_cloud_key)
-          ssh-keyscan -p 2222 forgejo.goork.de >> ~/.ssh/known_hosts 2>/dev/null || true
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/plinglist_cloud_key -o IdentitiesOnly=yes" \
-            git clone ssh://git@forgejo.goork.de:2222/thefraggle/plinglist-cloud.git cloud || true
-          rm -f ~/.ssh/plinglist_cloud_key
+          if [ -n "$CLOUD_SSH_KEY" ]; then
+            mkdir -p ~/.ssh
+            (umask 077 && echo "$CLOUD_SSH_KEY" > ~/.ssh/plinglist_cloud_key)
+            ssh-keyscan -p 2222 forgejo.goork.de >> ~/.ssh/known_hosts 2>/dev/null || true
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/plinglist_cloud_key -o IdentitiesOnly=yes" \
+              git clone ssh://git@forgejo.goork.de:2222/thefraggle/plinglist-cloud.git cloud || true
+            rm -f ~/.ssh/plinglist_cloud_key
+          else
+            echo "CLOUD_SSH_KEY not configured; continuing with open-core assets."
+          fi
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
