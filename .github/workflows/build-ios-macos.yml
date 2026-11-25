@@ -513,16 +513,9 @@ jobs:
             <key>teamID</key>
             <string>${APPLE_TEAM_ID}</string>
             <key>signingStyle</key>
-            <string>manual</string>
-            <key>signingCertificate</key>
-            <string>Apple Distribution</string>
-            <key>installerSigningCertificate</key>
-            <string>3rd Party Mac Developer Installer</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${APP_BUNDLE_ID}</key>
-              <string>${MAC_PROFILE_NAME}</string>
-            </dict>
+            <string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
           </dict>
           </plist>
           EOF
@@ -531,6 +524,7 @@ jobs:
               -archivePath "$RUNNER_TEMP/Plinglist-macOS.xcarchive" \
               -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-macOS.plist" \
               -exportPath "$RUNNER_TEMP/export-macos" \
+              -allowProvisioningUpdates \
               -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
               -authenticationKeyID "${ASC_KEY_ID}" \
               -authenticationKeyIssuerID "${ASC_ISSUER_ID}" > "$RUNNER_TEMP/mac-export.log" 2>&1; then
@@ -550,7 +544,7 @@ jobs:
           fi
 
       - name: Sync App Store Connect Version (0.1.19), Texts & Screenshots
-        if: ${{ inputs.upload_to_appstore && (inputs.target_platform == 'ios' || inputs.target_platform == 'metadata-only' || inputs.target_platform == 'all') }}
+        if: ${{ inputs.upload_to_appstore }}
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
