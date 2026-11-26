@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.30] - 2026-11-26
+
+### Deutsch
+- Aktualisierte Hilfe & Schnellstart: Kompakte Übersicht zu #Tags, @Zuweisungen in geteilten Listen, Listen-Ordnern, Sortierung und dem 7-Tage-Papierkorb.
+- Verbesserte Darstellung und Lesbarkeit aller Auswahlmenüs im hellen und dunklen Design.
+
+### English
+- Updated Help & Quickstart guide: Concise overview of #tags, @assignments in shared lists, list folders, sorting, and the 7-day trash.
+- Improved appearance and readability of all selection menus in light and dark themes.
+
 ## [0.1.29] - 2026-11-26
 
 ### Deutsch

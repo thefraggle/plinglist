@@ -25,19 +25,19 @@ export const TRANSLATIONS = {
     'help.title': 'Help & Quickstart',
     'help.step1Title': '1. My Day & Smart Lists',
     'help.step1Body':
-      'My Day resets at midnight every morning and suggests open tasks. Starred (★) and Planned bundle important and scheduled tasks automatically.',
-    'help.step2Title': '2. Share lists without an account',
+      'My Day resets at midnight every morning and suggests open tasks. Starred (★), Planned (with filters for Today, Tomorrow & Overdue), and Assigned to me bundle tasks automatically.',
+    'help.step2Title': '2. Share lists & @assignments',
     'help.step2Body':
-      'Open any custom list and click "Share" to copy an invite link. Family or team members can view and check off tasks immediately without signing up.',
-    'help.step3Title': '3. Pair your phone & computer',
+      'Open any custom list and click "Share" to copy an invite link. Family or team members collaborate without signing up; type @name to assign tasks directly to people.',
+    'help.step3Title': '3. Pair your phone & computer (Sync Key)',
     'help.step3Body':
-      'Go to Settings → Sync & Import → "Copy pairing link" and open it on your second device to keep all your lists in sync privately.',
-    'help.step4Title': '4. 1-Click Import',
+      'Copy the "Pairing link" under Settings → Sync & Import and open it on your second device (or paste it into the Sync Key field there) to keep all lists in sync privately.',
+    'help.step4Title': '4. 1-Click Import & 7-Day Trash',
     'help.step4Body':
-      'Switch easily from Wunderlist or Microsoft To Do by importing your JSON or CSV export file under Settings → Sync & Import.',
-    'help.tipsTitle': 'Tips & Shortcuts',
+      'Switch seamlessly from Wunderlist or Microsoft To Do via JSON or CSV import under Settings → Sync & Import. Deleted tasks and lists remain recoverable in Trash for 7 days.',
+    'help.tipsTitle': 'Tips, #Tags & Folders',
     'help.tipsBody':
-      'Press Enter to add a task · Click any task to edit steps, reminders, recurrence, and notes · Press ESC to close dialogs.',
+      'Type #tags in a task title to filter quickly · Click any task for steps, reminder, recurrence & notes · Group lists into folders when renaming and sort tasks at the top right or by dragging.',
     'legal.title': 'Legal & Privacy Policy',
     'legal.tabImprint': 'Imprint',
     'legal.tabPrivacy': 'Privacy',
@@ -190,7 +190,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.29 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.30 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -260,19 +260,19 @@ export const TRANSLATIONS = {
     'help.title': 'Hilfe & Schnellstart',
     'help.step1Title': '1. Mein Tag & Intelligente Listen',
     'help.step1Body':
-      '„Mein Tag“ setzt sich jede Nacht um Mitternacht frisch zurück und schlägt offene Aufgaben vor. „Wichtig“ (★) und „Geplant“ bündeln Aufgaben automatisch.',
-    'help.step2Title': '2. Listen teilen ohne Account',
+      '„Mein Tag“ setzt sich jede Nacht um Mitternacht frisch zurück und schlägt offene Aufgaben vor. „Wichtig“ (★), „Geplant“ (mit Filtern für Heute, Morgen & Überfällig) und „Mir zugewiesen“ bündeln Aufgaben automatisch.',
+    'help.step2Title': '2. Listen teilen & @Zuweisungen',
     'help.step2Body':
-      'Öffne eine eigene Liste und klicke auf „Teilen“, um einen Einladungslink zu kopieren. Familie oder Team können sofort ohne Registrierung mitarbeiten.',
+      'Öffne eine eigene Liste und klicke auf „Teilen“, um einen Einladungslink zu kopieren. Familie oder Team arbeiten ohne Registrierung mit; per @Name lassen sich Aufgaben direkt Personen zuweisen.',
     'help.step3Title': '3. Handy & PC koppeln (Sync-Key)',
     'help.step3Body':
-      'Kopiere unter Einstellungen → Sync & Import den „Koppellink“ und öffne ihn auf deinem Zweitgerät, um alle Listen privat synchron zu halten.',
-    'help.step4Title': '4. 1-Klick-Import',
+      'Kopiere unter Einstellungen → Sync & Import den „Koppellink“ und öffne ihn auf deinem Zweitgerät (oder füge ihn dort ins Feld Sync-Key ein), um alle Listen privat synchron zu halten.',
+    'help.step4Title': '4. 1-Klick-Import & 7-Tage-Papierkorb',
     'help.step4Body':
-      'Wechsle nahtlos von Wunderlist oder Microsoft To Do per JSON- oder CSV-Import unter Einstellungen → Sync & Import.',
-    'help.tipsTitle': 'Tipps & Tastatur',
+      'Wechsle nahtlos von Wunderlist oder Microsoft To Do per JSON-/CSV-Import unter Einstellungen → Sync & Import. Gelöschte Aufgaben und Listen bleiben 7 Tage im Papierkorb wiederherstellbar.',
+    'help.tipsTitle': 'Tipps, #Tags & Ordner',
     'help.tipsBody':
-      'Enter legt eine Aufgabe an · Klick auf eine Aufgabe öffnet Teilschritte, Erinnerung, Wiederholung & Notizen · ESC schließt jeden Dialog.',
+      'Tippe #tags in den Titel zum schnellen Filtern · Klicke auf eine Aufgabe für Teilschritte, Erinnerung, Wiederholung & Notizen · Gruppiere Listen beim Umbenennen in Ordner und sortiere Aufgaben oben rechts oder per Ziehen.',
     'legal.title': 'Rechtliches & Datenschutz',
     'legal.tabImprint': 'Impressum',
     'legal.tabPrivacy': 'Datenschutz',
@@ -426,7 +426,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.29 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.30 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

@@ -53,6 +53,14 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
   assert.match(t('en', 'legal.priv2Body'), /Apple.*Google|push server/i);
   assert.match(t('de', 'legal.priv3Body'), /30-Tage|30 Tage|Snapshots/i);
   assert.match(t('en', 'legal.priv3Body'), /30-day|snapshots/i);
+  assert.match(t('de', 'help.step1Body'), /Geplant.*Mir zugewiesen/i);
+  assert.match(t('en', 'help.step1Body'), /Planned.*Assigned to me/i);
+  assert.match(t('de', 'help.step2Body'), /@Name/i);
+  assert.match(t('en', 'help.step2Body'), /@name/i);
+  assert.match(t('de', 'help.step4Body'), /7 Tage/i);
+  assert.match(t('en', 'help.step4Body'), /7 days/i);
+  assert.match(t('de', 'help.tipsBody'), /#tags.*Ordner/i);
+  assert.match(t('en', 'help.tipsBody'), /#tags.*folders/i);
 });
 
 test('normalizeServerUrl defaults to official API and validates self-hosted URLs', () => {
