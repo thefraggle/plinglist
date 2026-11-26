@@ -27,6 +27,7 @@ import {
   APTABASE_HOST,
   UMAMI_APP_WEBSITE_ID,
   UMAMI_SCRIPT_URL,
+  detectNativeOsInfo,
   extractInviteTokenFromInput,
   extractSyncKeyFromInput,
   getShareBaseOrigin,
@@ -489,29 +490,6 @@ function initApp(): void {
   let nativeAppVersion = APP_VERSION;
   let nativeAppBuild = '1';
   let nativeAppInfoLoaded = false;
-
-  function detectNativeOsInfo(): { osName: string; osVersion: string } {
-    const capPlatform = (
-      window as { Capacitor?: { getPlatform?: () => string } }
-    ).Capacitor?.getPlatform?.();
-    const ua = navigator.userAgent || '';
-    const androidMatch = ua.match(/Android\s+([\d.]+)/i);
-    if (androidMatch || capPlatform === 'android') {
-      return { osName: 'Android', osVersion: androidMatch?.[1] ?? 'unknown' };
-    }
-    const iosMatch = ua.match(/(?:iPhone|iPad|CPU)\s+OS\s+([\d_]+)/i);
-    if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) {
-      return { osName: 'iPadOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
-    }
-    if (/iPhone|iPod/i.test(ua) || capPlatform === 'ios') {
-      return { osName: 'iOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
-    }
-    const macMatch = ua.match(/Mac OS X\s+([\d_]+)/i);
-    if (/Macintosh/i.test(ua)) {
-      return { osName: 'macOS', osVersion: (macMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
-    }
-    return { osName: 'Web', osVersion: 'unknown' };
-  }
 
   function getAptabaseSessionId(): string {
     const now = Date.now();

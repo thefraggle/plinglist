@@ -99,6 +99,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Keep scrolled list items behind the transparent iOS/iPadOS status bar cleanly masked */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: env(safe-area-inset-top, 0px);
+  background-color: var(--bg-canvas);
+  z-index: 25;
+  pointer-events: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

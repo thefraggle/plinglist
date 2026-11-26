@@ -8,10 +8,11 @@
   ],
   "ios": {
     "contentInset": "never",
+    "backgroundColor": "#f2f5f4",
     "scheme": "Plinglist"
   },
   "android": {
-    "backgroundColor": "#f4f5f6",
+    "backgroundColor": "#f2f5f4",
     "allowMixedContent": false
   }
 }

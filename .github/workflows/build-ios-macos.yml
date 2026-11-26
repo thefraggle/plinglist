@@ -187,6 +187,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Plinglist" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Plinglist" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.productivity" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :UIViewControllerBasedStatusBarAppearance true" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool true" "$INFO_PLIST"
 
           node - <<'EOF'
           const fs = require('node:fs');
@@ -201,14 +202,35 @@ jobs:
               '',
               '    var window: UIWindow?',
               '',
+              '    private func applyNativeThemeAppearance() {',
+              '        let canvasColor = UIColor { traitCollection in',
+              '            if traitCollection.userInterfaceStyle == .dark {',
+              '                return UIColor(red: 19.0 / 255.0, green: 22.0 / 255.0, blue: 21.0 / 255.0, alpha: 1.0)',
+              '            }',
+              '            return UIColor(red: 242.0 / 255.0, green: 245.0 / 255.0, blue: 244.0 / 255.0, alpha: 1.0)',
+              '        }',
+              '        window?.backgroundColor = canvasColor',
+              '        if let bridgeVC = window?.rootViewController as? CAPBridgeViewController {',
+              '            bridgeVC.view.backgroundColor = canvasColor',
+              '            bridgeVC.webView?.isOpaque = false',
+              '            bridgeVC.webView?.backgroundColor = canvasColor',
+              '            bridgeVC.webView?.scrollView.backgroundColor = canvasColor',
+              '        }',
+              '    }',
+              '',
               '    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {',
+              '        DispatchQueue.main.async { [weak self] in',
+              '            self?.applyNativeThemeAppearance()',
+              '        }',
               '        return true',
               '    }',
               '',
               '    func applicationWillResignActive(_ application: UIApplication) {}',
               '    func applicationDidEnterBackground(_ application: UIApplication) {}',
               '    func applicationWillEnterForeground(_ application: UIApplication) {}',
-              '    func applicationDidBecomeActive(_ application: UIApplication) {}',
+              '    func applicationDidBecomeActive(_ application: UIApplication) {',
+              '        applyNativeThemeAppearance()',
+              '    }',
               '    func applicationWillTerminate(_ application: UIApplication) {}',
               '',
               '    private func deliverPlinglistDeepLink(_ url: URL) {',

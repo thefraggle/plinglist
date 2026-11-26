@@ -7,6 +7,7 @@ import {
   DEFAULT_SERVER_URL,
   OFFICIAL_APP_ORIGIN,
   UMAMI_APP_WEBSITE_ID,
+  detectNativeOsInfo,
   extractInviteTokenFromInput,
   extractSyncKeyFromInput,
   getDefaultServerUrl,
@@ -982,6 +983,47 @@ test('native shell origin helpers, share base origin, and ?pair= / ?join= input 
   );
   assert.equal(extractInviteTokenFromInput('  inv-abc123  '), 'inv-abc123');
 
+  assert.deepEqual(
+    detectNativeOsInfo(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      0,
+      'ios',
+    ),
+    { osName: 'macOS', osVersion: '10.15.7' },
+  );
+  assert.deepEqual(
+    detectNativeOsInfo(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      5,
+      'ios',
+    ),
+    { osName: 'iPadOS', osVersion: 'unknown' },
+  );
+  assert.deepEqual(
+    detectNativeOsInfo(
+      'Mozilla/5.0 (iPad; CPU OS 18_2 like Mac OS X) AppleWebKit/605.1.15',
+      5,
+      'ios',
+    ),
+    { osName: 'iPadOS', osVersion: '18.2' },
+  );
+  assert.deepEqual(
+    detectNativeOsInfo(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15',
+      5,
+      'ios',
+    ),
+    { osName: 'iOS', osVersion: '18.7' },
+  );
+  assert.deepEqual(
+    detectNativeOsInfo(
+      'Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36',
+      5,
+      'android',
+    ),
+    { osName: 'Android', osVersion: '16' },
+  );
+
   const repo = new SqliteSyncRepository(':memory:');
   const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -1280,4 +1322,57 @@ test('free tier enforces 1 own shared list while allowing unlimited foreign join
     );
     repo.close();
   }
+});
+
+test('Android, iOS, and web theming preserve status bar contrast and safe-area backdrops', () => {
+  const indexHtml = fs.readFileSync(path.resolve('app/index.html'), 'utf8');
+  assert.match(
+    indexHtml,
+    /<meta\s+name="theme-color"\s+media="\(prefers-color-scheme:\s*light\)"\s+content="#f2f5f4"\s*\/>/i,
+  );
+  assert.match(
+    indexHtml,
+    /<meta\s+name="theme-color"\s+media="\(prefers-color-scheme:\s*dark\)"\s+content="#131615"\s*\/>/i,
+  );
+
+  const manifest = JSON.parse(fs.readFileSync(path.resolve('app/manifest.webmanifest'), 'utf8')) as {
+    theme_color?: string;
+    background_color?: string;
+  };
+  assert.equal(manifest.theme_color, '#f2f5f4');
+  assert.equal(manifest.background_color, '#f2f5f4');
+
+  const capConfig = JSON.parse(fs.readFileSync(path.resolve('capacitor.config.json'), 'utf8')) as {
+    ios?: { backgroundColor?: string };
+    android?: { backgroundColor?: string };
+  };
+  assert.equal(capConfig.ios?.backgroundColor, '#f2f5f4');
+  assert.equal(capConfig.android?.backgroundColor, '#f2f5f4');
+
+  const stylesCss = fs.readFileSync(path.resolve('app/styles.css'), 'utf8');
+  assert.match(
+    stylesCss,
+    /body::before\s*\{[^}]*height:\s*env\(safe-area-inset-top,\s*0px\)[^}]*background-color:\s*var\(--bg-canvas\)/s,
+  );
+
+  const androidWorkflow = fs.readFileSync(
+    path.resolve('.github/workflows/build-android.yml'),
+    'utf8',
+  );
+  assert.match(androidWorkflow, /setAppearanceLightStatusBars\(!isNight\)/);
+  assert.match(androidWorkflow, /setAppearanceLightNavigationBars\(!isNight\)/);
+  assert.match(androidWorkflow, /WindowInsetsCompat\.Type\.systemBars\(\)/);
+  assert.match(androidWorkflow, /values\/styles\.xml/);
+  assert.match(androidWorkflow, /values-night\/styles\.xml/);
+  assert.match(androidWorkflow, /android:windowLightStatusBar">true/);
+  assert.match(androidWorkflow, /android:windowLightStatusBar">false/);
+
+  const iosWorkflow = fs.readFileSync(
+    path.resolve('.github/workflows/build-ios-macos.yml'),
+    'utf8',
+  );
+  assert.match(iosWorkflow, /UIViewControllerBasedStatusBarAppearance/);
+  assert.match(iosWorkflow, /applyNativeThemeAppearance/);
+  assert.match(iosWorkflow, /242\.0\s*\/\s*255\.0/);
+  assert.match(iosWorkflow, /19\.0\s*\/\s*255\.0/);
 });

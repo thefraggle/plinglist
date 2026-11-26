@@ -188,3 +188,43 @@ export function normalizeServerUrl(input?: string): string {
 
   return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '');
 }
+
+/**
+ * Classifies native runtime OS/version cleanly so Mac Catalyst (which reports
+ * Capacitor.getPlatform() === 'ios' alongside a Macintosh userAgent) is tracked
+ * as macOS instead of 'iOS unknown'.
+ */
+export function detectNativeOsInfo(
+  userAgent?: string,
+  maxTouchPoints?: number,
+  capacitorPlatform?: string,
+): { osName: string; osVersion: string } {
+  const win = typeof globalThis.window !== 'undefined' ? globalThis.window : undefined;
+  const nav = typeof globalThis.navigator !== 'undefined' ? globalThis.navigator : undefined;
+  const ua = userAgent ?? nav?.userAgent ?? '';
+  const touchPoints = maxTouchPoints ?? nav?.maxTouchPoints ?? 0;
+  const capPlatform =
+    capacitorPlatform ??
+    (win as { Capacitor?: { getPlatform?: () => string } } | undefined)?.Capacitor?.getPlatform?.();
+
+  const androidMatch = ua.match(/Android\s+([\d.]+)/i);
+  if (androidMatch || capPlatform === 'android') {
+    return { osName: 'Android', osVersion: androidMatch?.[1] ?? 'unknown' };
+  }
+
+  const iosMatch = ua.match(/(?:iPhone|iPad|CPU)\s+OS\s+([\d_]+)/i);
+  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && touchPoints > 1)) {
+    return { osName: 'iPadOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+  }
+
+  if (/Macintosh/i.test(ua)) {
+    const macMatch = ua.match(/Mac OS X\s+([\d_]+)/i);
+    return { osName: 'macOS', osVersion: (macMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+  }
+
+  if (/iPhone|iPod/i.test(ua) || capPlatform === 'ios') {
+    return { osName: 'iOS', osVersion: (iosMatch?.[1] ?? 'unknown').replace(/_/g, '.') };
+  }
+
+  return { osName: 'Web', osVersion: 'unknown' };
+}
