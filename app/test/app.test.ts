@@ -47,6 +47,12 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
     t('en', 'task.emptyView'),
     'Pling. Done. — Nothing open here. Ready when you are.',
   );
+  assert.match(t('de', 'legal.copyrightBody'), /Microsoft Corporation/i);
+  assert.match(t('en', 'legal.copyrightBody'), /Microsoft Corporation/i);
+  assert.match(t('de', 'legal.priv2Body'), /Apple.*Google|Push-Server/i);
+  assert.match(t('en', 'legal.priv2Body'), /Apple.*Google|push server/i);
+  assert.match(t('de', 'legal.priv3Body'), /30-Tage|30 Tage|Snapshots/i);
+  assert.match(t('en', 'legal.priv3Body'), /30-day|snapshots/i);
 });
 
 test('normalizeServerUrl defaults to official API and validates self-hosted URLs', () => {
