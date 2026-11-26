@@ -37,6 +37,16 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
   assert.deepEqual(deKeys, enKeys);
   assert.equal(t('de', 'nav.myDay'), 'Mein Tag');
   assert.equal(t('en', 'nav.myDay'), 'My Day');
+  assert.equal(t('de', 'toast.plingDone'), 'Pling. Done.');
+  assert.equal(t('en', 'toast.plingDone'), 'Pling. Done.');
+  assert.equal(
+    t('de', 'task.emptyView'),
+    'Pling. Done. — Alles erledigt. Bereit für neue Aufgaben.',
+  );
+  assert.equal(
+    t('en', 'task.emptyView'),
+    'Pling. Done. — Nothing open here. Ready when you are.',
+  );
 });
 
 test('normalizeServerUrl defaults to official API and validates self-hosted URLs', () => {
