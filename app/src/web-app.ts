@@ -1853,6 +1853,26 @@ function initApp(): void {
       .catch(() => undefined);
   });
 
+  const joinSharedListInputEl = document.getElementById(
+    'joinSharedListInput',
+  ) as HTMLInputElement | null;
+  const stripJoinInputUrl = (): void => {
+    if (!joinSharedListInputEl || !/[/:?=\s]/.test(joinSharedListInputEl.value)) return;
+    const raw = joinSharedListInputEl.value;
+    const looksLikePairing =
+      raw.includes('pair=') ||
+      raw.includes('key=') ||
+      extractSyncKeyFromInput(raw).startsWith('pling-');
+    const stripped = looksLikePairing
+      ? extractSyncKeyFromInput(raw)
+      : extractInviteTokenFromInput(raw);
+    if (stripped && stripped !== raw) {
+      joinSharedListInputEl.value = stripped;
+    }
+  };
+  joinSharedListInputEl?.addEventListener('input', stripJoinInputUrl);
+  joinSharedListInputEl?.addEventListener('change', stripJoinInputUrl);
+
   document.getElementById('joinSharedListForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = document.getElementById('joinSharedListInput') as HTMLInputElement;
@@ -2185,6 +2205,20 @@ function initApp(): void {
     .getElementById('openSettingsPrivacyBtn')
     ?.addEventListener('click', () => openLegalModal('privacy'));
 
+  const settingsSyncKeyInputEl = document.getElementById(
+    'settingsSyncKeyInput',
+  ) as HTMLInputElement | null;
+  const stripSettingsSyncKeyInputUrl = (): void => {
+    if (!settingsSyncKeyInputEl || settingsSyncKeyInputEl.readOnly) return;
+    if (!/[/:?=\s]/.test(settingsSyncKeyInputEl.value)) return;
+    const stripped = extractSyncKeyFromInput(settingsSyncKeyInputEl.value);
+    if (stripped && stripped !== settingsSyncKeyInputEl.value) {
+      settingsSyncKeyInputEl.value = stripped;
+    }
+  };
+  settingsSyncKeyInputEl?.addEventListener('input', stripSettingsSyncKeyInputUrl);
+  settingsSyncKeyInputEl?.addEventListener('change', stripSettingsSyncKeyInputUrl);
+
   document.getElementById('editSettingsSyncKeyBtn')?.addEventListener('click', () => {
     const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
     const editBtn = document.getElementById('editSettingsSyncKeyBtn') as HTMLButtonElement | null;
@@ -2197,13 +2231,68 @@ function initApp(): void {
 
   document.getElementById('manualSyncBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('manualSyncBtn') as HTMLButtonElement | null;
+    const errEl = document.getElementById('settingsErrorText') as HTMLElement | null;
+    const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
+    const serverUrlInput = document.getElementById(
+      'settingsServerUrlInput',
+    ) as HTMLInputElement | null;
+    const editBtn = document.getElementById('editSettingsSyncKeyBtn') as HTMLButtonElement | null;
+
+    if (serverUrlInput && serverUrlInput.value.trim()) {
+      try {
+        store.setServerUrl(serverUrlInput.value);
+      } catch {
+        if (errEl) {
+          selectSettingsTab('sync');
+          errEl.textContent = t(store.locale, 'settings.serverUrlInvalid');
+          errEl.hidden = false;
+        }
+        return;
+      }
+    }
+
+    let keyChanged = false;
+    if (syncKeyInput) {
+      const candidate = extractSyncKeyFromInput(syncKeyInput.value);
+      if (candidate !== store.syncKey) {
+        try {
+          store.setSyncKey(syncKeyInput.value, { forceReset: true });
+          syncKeyInput.value = store.syncKey;
+          syncKeyInput.readOnly = true;
+          if (editBtn) editBtn.hidden = false;
+          keyChanged = true;
+        } catch {
+          if (errEl) {
+            selectSettingsTab('sync');
+            errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
+            errEl.hidden = false;
+          }
+          return;
+        }
+      }
+    }
+    if (errEl) errEl.hidden = true;
+
     if (btn) {
       btn.disabled = true;
       btn.dataset.loading = 'true';
     }
     try {
       store.forceFullSync();
-      await runSyncNow();
+      if (keyChanged) {
+        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
+        if (res.synced) {
+          hasSyncedOnce = true;
+          selectBestViewAfterPairing();
+          showToast(t(store.locale, 'toast.devicePaired'));
+        } else {
+          showToast(t(store.locale, 'toast.pairFailed'));
+        }
+        trackDiagnostic('device_paired');
+        render();
+      } else {
+        await runSyncNow();
+      }
       updateSyncLabels();
     } finally {
       if (btn) {

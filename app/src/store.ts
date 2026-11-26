@@ -350,8 +350,11 @@ export class PlinglistStore {
         return false;
       }
       this.userId = parsed.userId || this.userId;
-      this.syncKey = parsed.syncKey?.trim() || this.syncKey;
-      this.cursorHlc = parsed.cursorHlc ?? null;
+      const rawSyncKey = parsed.syncKey?.trim() || this.syncKey;
+      const cleanedSyncKey = extractSyncKeyFromInput(rawSyncKey) || this.syncKey;
+      const migratedLegacySyncKeyUrl = cleanedSyncKey !== rawSyncKey;
+      this.syncKey = cleanedSyncKey;
+      this.cursorHlc = migratedLegacySyncKeyUrl ? null : (parsed.cursorHlc ?? null);
       this.entitlementPlan =
         parsed.entitlementPlan === 'pro_yearly' || parsed.entitlementPlan === 'pro_lifetime'
           ? parsed.entitlementPlan
@@ -386,7 +389,7 @@ export class PlinglistStore {
       }
       const consolidated = this.consolidateWorkspaceLists();
       const purgedCount = this.purgeExpiredTrash();
-      if (consolidated || migratedLegacyApiUrl || purgedCount > 0) {
+      if (consolidated || migratedLegacyApiUrl || migratedLegacySyncKeyUrl || purgedCount > 0) {
         this.persist(true);
       }
       return this.lists.length > 0;

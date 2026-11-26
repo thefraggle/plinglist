@@ -92,6 +92,14 @@ export function getShareBaseOrigin(locationOrigin?: string, fallbackServerUrl?: 
   return OFFICIAL_APP_ORIGIN;
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function extractSyncKeyFromInput(rawInput: string): string {
   const trimmed = rawInput.trim();
   if (!trimmed) return '';
@@ -104,7 +112,18 @@ export function extractSyncKeyFromInput(rawInput: string): string {
       }
     }
   } catch {
-    // Fallback to raw trimmed string
+    // Fallback to regex extraction below
+  }
+  const paramMatch = trimmed.match(/(?:[?&]|^)(?:pair|key)=([^&#\s]+)/i);
+  if (paramMatch?.[1]) {
+    const decoded = safeDecodeURIComponent(paramMatch[1]).trim();
+    if (decoded) return decoded;
+  }
+  if (/[/:?=\s]/.test(trimmed)) {
+    const tokenMatch = trimmed.match(/\b(pling-[a-z0-9-]{6,})\b/i);
+    if (tokenMatch?.[1]) {
+      return tokenMatch[1].trim();
+    }
   }
   return trimmed;
 }
@@ -121,11 +140,27 @@ export function extractInviteTokenFromInput(rawInput: string): string {
       }
       const joinPathMatch = parsed.pathname.match(/\/join\/([^/?#]+)/);
       if (joinPathMatch?.[1]) {
-        return decodeURIComponent(joinPathMatch[1]).trim();
+        return safeDecodeURIComponent(joinPathMatch[1]).trim();
       }
     }
   } catch {
-    // Fallback to raw trimmed string
+    // Fallback to regex extraction below
+  }
+  const paramMatch = trimmed.match(/(?:[?&]|^)(?:join|token)=([^&#\s]+)/i);
+  if (paramMatch?.[1]) {
+    const decoded = safeDecodeURIComponent(paramMatch[1]).trim();
+    if (decoded) return decoded;
+  }
+  const pathMatch = trimmed.match(/\/join\/([^/?#\s]+)/i);
+  if (pathMatch?.[1]) {
+    const decoded = safeDecodeURIComponent(pathMatch[1]).trim();
+    if (decoded) return decoded;
+  }
+  if (/[/:?=\s]/.test(trimmed)) {
+    const tokenMatch = trimmed.match(/\b(inv-(?:ro-)?[a-z0-9-]{4,})\b/i);
+    if (tokenMatch?.[1]) {
+      return tokenMatch[1].trim();
+    }
   }
   return trimmed;
 }

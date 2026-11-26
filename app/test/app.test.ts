@@ -932,6 +932,22 @@ test('native shell origin helpers, share base origin, and ?pair= / ?join= input 
     'pling-111111-222222-333333-444444',
   );
   assert.equal(
+    extractSyncKeyFromInput('tps://plinglist.app/?pair=pling-5946-9a16-59e8'),
+    'pling-5946-9a16-59e8',
+  );
+  assert.equal(
+    extractSyncKeyFromInput('plinglist.app/?pair=pling-5946-9a16-59e8'),
+    'pling-5946-9a16-59e8',
+  );
+  assert.equal(
+    extractSyncKeyFromInput('?pair=pling-5946-9a16-59e8'),
+    'pling-5946-9a16-59e8',
+  );
+  assert.equal(
+    extractSyncKeyFromInput('Plinglist Sync: https://plinglist.app/?pair=pling-5946-9a16-59e8'),
+    'pling-5946-9a16-59e8',
+  );
+  assert.equal(
     extractSyncKeyFromInput('plinglist://pair?key=pling-111111-222222-333333-444444'),
     'pling-111111-222222-333333-444444',
   );
@@ -943,6 +959,18 @@ test('native shell origin helpers, share base origin, and ?pair= / ?join= input 
   assert.equal(
     extractInviteTokenFromInput('https://plinglist.app/?join=inv-abc123'),
     'inv-abc123',
+  );
+  assert.equal(
+    extractInviteTokenFromInput('plinglist.app/?join=inv-44f28593'),
+    'inv-44f28593',
+  );
+  assert.equal(
+    extractInviteTokenFromInput('plinglist.app/join/inv-ro-44f28593'),
+    'inv-ro-44f28593',
+  );
+  assert.equal(
+    extractInviteTokenFromInput('Join list: https://plinglist.app/?join=inv-44f28593'),
+    'inv-44f28593',
   );
   assert.equal(
     extractInviteTokenFromInput('https://api.plinglist.app/join/inv-abc123'),
@@ -982,6 +1010,45 @@ test('native shell origin helpers, share base origin, and ?pair= / ?join= input 
     );
     repo.close();
   }
+});
+
+test('PlinglistStore self-heals legacy persisted full-URL syncKey on load and resets cursorHlc', () => {
+  const storage = createMemoryStorage();
+  storage.setItem(
+    'plinglist.local.v1',
+    JSON.stringify({
+      version: 1,
+      userId: 'usr-legacy-mac',
+      syncKey: 'https://plinglist.app/?pair=pling-5946-9a16-59e8',
+      cursorHlc: '001795679586611:00001:server',
+      locale: 'de',
+      serverUrl: DEFAULT_SERVER_URL,
+      soundEnabled: true,
+      lists: [
+        {
+          id: 'list-tasks',
+          title: 'Aufgaben',
+          shared: false,
+          inviteToken: null,
+          createdAt: '2026-11-24T09:00:00.000Z',
+          updatedAt: '2026-11-24T09:00:00.000Z',
+          deletedAt: null,
+          hlc: '001795679586611:00000:mac',
+        },
+      ],
+      tasks: [],
+    }),
+  );
+
+  const healed = new PlinglistStore({ storage, locale: 'de' });
+  assert.equal(healed.syncKey, 'pling-5946-9a16-59e8');
+  assert.equal(healed.cursorHlc, null);
+  const persisted = JSON.parse(storage.getItem('plinglist.local.v1') ?? '{}') as {
+    syncKey?: string;
+    cursorHlc?: string | null;
+  };
+  assert.equal(persisted.syncKey, 'pling-5946-9a16-59e8');
+  assert.equal(persisted.cursorHlc, null);
 });
 
 test('setSyncKey via pairing URL cleanly replaces existing throwaway session with web session', async () => {
