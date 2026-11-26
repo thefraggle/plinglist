@@ -209,8 +209,6 @@ jobs:
             let manifest = fs.readFileSync(manifestPath, 'utf8');
             const neededPermissions = [
               'android.permission.POST_NOTIFICATIONS',
-              'android.permission.SCHEDULE_EXACT_ALARM',
-              'android.permission.USE_EXACT_ALARM',
               'android.permission.RECEIVE_BOOT_COMPLETED',
               'android.permission.WAKE_LOCK',
             ].filter((perm) => !manifest.includes(perm));

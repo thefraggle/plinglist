@@ -1378,9 +1378,8 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(androidWorkflow, /android:windowLightStatusBar">false/);
   assert.doesNotMatch(androidWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
   assert.match(androidWorkflow, /android\.permission\.POST_NOTIFICATIONS/);
-  assert.match(androidWorkflow, /android\.permission\.SCHEDULE_EXACT_ALARM/);
-  assert.match(androidWorkflow, /android\.permission\.USE_EXACT_ALARM/);
   assert.match(androidWorkflow, /android\.permission\.RECEIVE_BOOT_COMPLETED/);
+  assert.doesNotMatch(androidWorkflow, /USE_EXACT_ALARM|SCHEDULE_EXACT_ALARM/);
 
   const iosWorkflow = fs.readFileSync(
     path.resolve('.github/workflows/build-ios-macos.yml'),
