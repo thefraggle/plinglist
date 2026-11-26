@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.29] - 2026-11-26
+
+### Deutsch
+- Klarere Auswahlmenüs: Die Sortierung und alle Auswahllisten sind im hellen und dunklen Design optimal lesbar und zeigen einen sauberen, ruhigen Rahmen.
+- Aktualisierte Datenschutz- und Rechtshinweise direkt in der App.
+
+### English
+- Clearer selection menus: Sorting and all dropdown menus stay crisp and easy to read in both light and dark themes with a clean, distraction-free border.
+- Updated in-app privacy and legal disclosures.
+
 ## [0.1.28] - 2026-11-26
 
 ### Deutsch

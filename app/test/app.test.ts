@@ -1382,6 +1382,15 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(androidWorkflow, /values-night\/styles\.xml/);
   assert.match(androidWorkflow, /android:windowLightStatusBar">true/);
   assert.match(androidWorkflow, /android:windowLightStatusBar">false/);
+  assert.doesNotMatch(androidWorkflow, /@drawable\/splash/);
+  assert.doesNotMatch(androidWorkflow, /Theme\.SplashScreen/);
+  assert.match(androidWorkflow, /<style name="AppTheme\.NoActionBarLaunch" parent="AppTheme\.NoActionBar"\s*\/>/);
+  assert.match(androidWorkflow, /android:colorBackground">#FFFFFF/);
+  assert.match(androidWorkflow, /android:colorBackground">#1C201F/);
+  assert.match(androidWorkflow, /android:textColorPrimary">#171B1A/);
+  assert.match(androidWorkflow, /android:textColorPrimary">#F2F4F3/);
+  assert.match(androidWorkflow, /setTheme\(R\.style\.AppTheme_NoActionBar\)/);
+  assert.match(androidWorkflow, /splash\.png/);
   assert.doesNotMatch(androidWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
   assert.match(androidWorkflow, /android\.permission\.POST_NOTIFICATIONS/);
   assert.match(androidWorkflow, /android\.permission\.RECEIVE_BOOT_COMPLETED/);
@@ -1393,9 +1402,17 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   );
   assert.match(iosWorkflow, /UIViewControllerBasedStatusBarAppearance/);
   assert.match(iosWorkflow, /applyNativeThemeAppearance/);
+  assert.match(iosWorkflow, /window\?\.tintColor\s*=\s*brandColor/);
+  assert.match(iosWorkflow, /LaunchScreen\.storyboard/);
+  assert.match(iosWorkflow, /Splash\.imageset/);
   assert.match(iosWorkflow, /242\.0\s*\/\s*255\.0/);
   assert.match(iosWorkflow, /19\.0\s*\/\s*255\.0/);
   assert.doesNotMatch(iosWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
+
+  assert.match(stylesCss, /select\s*\{[^}]*appearance:\s*none;/s);
+  assert.match(stylesCss, /select\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml/s);
+  assert.match(stylesCss, /select option\s*\{[^}]*background-color:\s*var\(--bg-surface\)[^}]*color:\s*var\(--text-primary\)/s);
+  assert.match(stylesCss, /select:focus-visible[^{]*\{[^}]*outline-offset:\s*-1px;/s);
 
   const webAppTs = fs.readFileSync(path.resolve('app/src/web-app.ts'), 'utf8');
   assert.match(webAppTs, /plinglist\.firedReminders\.v1/);

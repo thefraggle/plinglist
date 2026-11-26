@@ -1689,6 +1689,15 @@ function initApp(): void {
     render();
   });
 
+  document.addEventListener('change', (event) => {
+    if (
+      event.target instanceof HTMLSelectElement &&
+      window.matchMedia?.('(pointer: coarse)').matches
+    ) {
+      event.target.blur();
+    }
+  });
+
   document.getElementById('viewSortSelect')?.addEventListener('change', (event) => {
     activeSortMode = (event.target as HTMLSelectElement).value as TaskSortMode;
     render();

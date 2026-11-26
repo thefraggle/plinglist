@@ -207,6 +207,10 @@ jobs:
 
             const manifestPath = 'android/app/src/main/AndroidManifest.xml';
             let manifest = fs.readFileSync(manifestPath, 'utf8');
+            manifest = manifest.replace(
+              /android:theme="@style\/AppTheme\.NoActionBarLaunch"/g,
+              'android:theme="@style/AppTheme.NoActionBar"',
+            );
             const neededPermissions = [
               'android.permission.POST_NOTIFICATIONS',
               'android.permission.RECEIVE_BOOT_COMPLETED',
@@ -245,21 +249,18 @@ jobs:
               '        <item name="colorPrimaryDark">#F2F5F4</item>',
               '        <item name="colorAccent">#0D6B58</item>',
               '        <item name="android:windowBackground">#F2F5F4</item>',
+              '        <item name="android:colorBackground">#FFFFFF</item>',
+              '        <item name="android:textColorPrimary">#171B1A</item>',
+              '        <item name="android:textColorSecondary">#59605D</item>',
               '        <item name="android:statusBarColor">#F2F5F4</item>',
               '        <item name="android:navigationBarColor">#FFFFFF</item>',
               '        <item name="android:windowLightStatusBar">true</item>',
               '    </style>',
-              '    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">',
+              '    <style name="AppTheme.NoActionBar" parent="AppTheme">',
               '        <item name="windowActionBar">false</item>',
               '        <item name="windowNoTitle">true</item>',
-              '        <item name="android:windowBackground">#F2F5F4</item>',
-              '        <item name="android:statusBarColor">#F2F5F4</item>',
-              '        <item name="android:navigationBarColor">#FFFFFF</item>',
-              '        <item name="android:windowLightStatusBar">true</item>',
               '    </style>',
-              '    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">',
-              '        <item name="android:background">@drawable/splash</item>',
-              '    </style>',
+              '    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar" />',
               '</resources>',
             ].join('\n') + '\n';
             fs.writeFileSync(lightStylesPath, lightStylesXml);
@@ -274,21 +275,36 @@ jobs:
               '        <item name="colorPrimaryDark">#131615</item>',
               '        <item name="colorAccent">#48C9AD</item>',
               '        <item name="android:windowBackground">#131615</item>',
+              '        <item name="android:colorBackground">#1C201F</item>',
+              '        <item name="android:textColorPrimary">#F2F4F3</item>',
+              '        <item name="android:textColorSecondary">#9EA8A4</item>',
               '        <item name="android:statusBarColor">#131615</item>',
               '        <item name="android:navigationBarColor">#1C201F</item>',
               '        <item name="android:windowLightStatusBar">false</item>',
               '    </style>',
-              '    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">',
+              '    <style name="AppTheme.NoActionBar" parent="AppTheme">',
               '        <item name="windowActionBar">false</item>',
               '        <item name="windowNoTitle">true</item>',
-              '        <item name="android:windowBackground">#131615</item>',
-              '        <item name="android:statusBarColor">#131615</item>',
-              '        <item name="android:navigationBarColor">#1C201F</item>',
-              '        <item name="android:windowLightStatusBar">false</item>',
               '    </style>',
+              '    <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar" />',
               '</resources>',
             ].join('\n') + '\n';
             fs.writeFileSync(nightStylesPath, nightStylesXml);
+
+            const resDir = 'android/app/src/main/res';
+            if (fs.existsSync(resDir)) {
+              for (const entry of fs.readdirSync(resDir, { withFileTypes: true })) {
+                if (entry.isDirectory() && entry.name.startsWith('drawable')) {
+                  const splashPng = `${resDir}/${entry.name}/splash.png`;
+                  if (fs.existsSync(splashPng)) fs.rmSync(splashPng, { force: true });
+                }
+              }
+              fs.mkdirSync(`${resDir}/drawable`, { recursive: true });
+              fs.writeFileSync(
+                `${resDir}/drawable/splash.xml`,
+                '<?xml version="1.0" encoding="utf-8"?>\n<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">\n    <solid android:color="#F2F5F4" />\n</shape>\n',
+              );
+            }
 
             const mainActivityPath = 'android/app/src/main/java/de/goork/plinglist/MainActivity.java';
             if (fs.existsSync(mainActivityPath)) {
@@ -313,6 +329,7 @@ jobs:
                 'public class MainActivity extends BridgeActivity {',
                 '    @Override',
                 '    protected void onCreate(Bundle savedInstanceState) {',
+                '        setTheme(R.style.AppTheme_NoActionBar);',
                 '        super.onCreate(savedInstanceState);',
                 '        View contentView = findViewById(android.R.id.content);',
                 '        if (contentView != null) {',
