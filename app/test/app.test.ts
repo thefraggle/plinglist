@@ -1376,6 +1376,11 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(androidWorkflow, /values-night\/styles\.xml/);
   assert.match(androidWorkflow, /android:windowLightStatusBar">true/);
   assert.match(androidWorkflow, /android:windowLightStatusBar">false/);
+  assert.doesNotMatch(androidWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
+  assert.match(androidWorkflow, /android\.permission\.POST_NOTIFICATIONS/);
+  assert.match(androidWorkflow, /android\.permission\.SCHEDULE_EXACT_ALARM/);
+  assert.match(androidWorkflow, /android\.permission\.USE_EXACT_ALARM/);
+  assert.match(androidWorkflow, /android\.permission\.RECEIVE_BOOT_COMPLETED/);
 
   const iosWorkflow = fs.readFileSync(
     path.resolve('.github/workflows/build-ios-macos.yml'),
@@ -1385,4 +1390,10 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(iosWorkflow, /applyNativeThemeAppearance/);
   assert.match(iosWorkflow, /242\.0\s*\/\s*255\.0/);
   assert.match(iosWorkflow, /19\.0\s*\/\s*255\.0/);
+  assert.doesNotMatch(iosWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
+
+  const webAppTs = fs.readFileSync(path.resolve('app/src/web-app.ts'), 'utf8');
+  assert.match(webAppTs, /plinglist\.firedReminders\.v1/);
+  assert.match(webAppTs, /allowWhileIdle:\s*true/);
+  assert.match(webAppTs, /showNotification\(/);
 });

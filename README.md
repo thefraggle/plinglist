@@ -48,12 +48,12 @@ To keep the public open-core repository lightweight and dependency-free (`npm te
 
 ```bash
 npm run build
-npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
+npm install --save-dev @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
 npx cap add ios && npx cap sync ios
 npx cap add android && npx cap sync android
 ```
 
-All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, `extractInviteTokenFromInput()`, `@capacitor/app` deep-link & back-gesture handling, and `plinglist://` deep-link handling) is part of the public `app/` codebase. For public forks or redistributed binaries, follow [TRADEMARK.md](TRADEMARK.md) and choose your own app ID, icons, and branding.
+All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigin()`, `extractSyncKeyFromInput()`, `extractInviteTokenFromInput()`, `detectNativeOsInfo()`, `@capacitor/app` deep-link & back-gesture handling, `@capacitor/local-notifications` reminder scheduling, and `plinglist://` deep-link handling) is part of the public `app/` codebase. For public forks or redistributed binaries, follow [TRADEMARK.md](TRADEMARK.md) and choose your own app ID, icons, and branding.
 
 ---
 
@@ -62,7 +62,7 @@ All native WebView integration code (`isNativeShellOrigin()`, `getShareBaseOrigi
 Requires **Node.js 22+**.
 
 ```bash
-# Run the test suite across core, server, and app (44 tests)
+# Run the test suite across core, server, and app (50 tests)
 npm test
 
 # Build the browser bundle into app/dist/
@@ -91,7 +91,7 @@ docker compose up -d --build
 ## Documentation & Governance
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System diagram, HLC conflict resolution, SQLite WAL schema, and API contract
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.27`)
+- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.28`)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Coding, TDD, and i18n guidelines
 - [SECURITY.md](SECURITY.md) — Vulnerability disclosure policy
 - [TRADEMARK.md](TRADEMARK.md) — Mandatory rebranding policy for forks and public deployments

@@ -607,7 +607,32 @@ function initApp(): void {
     if (!umami) return;
     umami.track(eventName, { locale: store.locale });
   }
-  const firedReminderKeys = new Set<string>();
+  const FIRED_REMINDERS_STORAGE_KEY = 'plinglist.firedReminders.v1';
+  const SCHEDULED_NATIVE_REMINDERS_KEY = 'plinglist.scheduledNativeReminders.v1';
+
+  function loadStoredKeySet(storageKey: string): Set<string> {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return new Set<string>();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set<string>();
+      return new Set(parsed.filter((item): item is string => typeof item === 'string'));
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  function persistKeySet(storageKey: string, keys: Set<string>): void {
+    try {
+      const recent = Array.from(keys).slice(-500);
+      window.localStorage.setItem(storageKey, JSON.stringify(recent));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }
+
+  const firedReminderKeys = loadStoredKeySet(FIRED_REMINDERS_STORAGE_KEY);
+  const scheduledNativeReminderKeys = loadStoredKeySet(SCHEDULED_NATIVE_REMINDERS_KEY);
   let pendingDeleteAction: (() => void) | null = null;
 
   function requestDeleteConfirmation(message: string, onConfirm: () => void): void {
@@ -1950,8 +1975,29 @@ function initApp(): void {
     ).value;
     const reminderAt =
       (document.getElementById('detailReminderInput') as HTMLInputElement).value || null;
-    if (reminderAt && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      void Notification.requestPermission().catch(() => undefined);
+    if (reminderAt) {
+      if (isNativeShellOrigin()) {
+        const localNotifications = (
+          window as {
+            Capacitor?: {
+              Plugins?: {
+                LocalNotifications?: {
+                  checkPermissions?: () => Promise<{ display?: string }>;
+                  requestPermissions?: () => Promise<{ display?: string }>;
+                };
+              };
+            };
+          }
+        ).Capacitor?.Plugins?.LocalNotifications;
+        void localNotifications
+          ?.checkPermissions?.()
+          .then((perm) =>
+            perm?.display === 'granted' ? perm : localNotifications?.requestPermissions?.(),
+          )
+          .catch(() => undefined);
+      } else if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        void Notification.requestPermission().catch(() => undefined);
+      }
     }
     const listSelect = document.getElementById('detailListSelect') as HTMLSelectElement | null;
     const nextListId = listSelect?.value;
@@ -2409,7 +2455,7 @@ function initApp(): void {
                   id: number;
                   title: string;
                   body: string;
-                  schedule: { at: Date };
+                  schedule: { at: Date; allowWhileIdle?: boolean };
                 }>;
               }) => Promise<void>;
             };
@@ -2434,11 +2480,12 @@ function initApp(): void {
           hash = Math.imul(hash, 16777619);
         }
         return {
+          key,
           id: (hash & 0x7fffffff) || 1,
           title: 'Plinglist',
           body: task.title,
           atIso: task.reminderAt!,
-          schedule: { at: new Date(task.reminderAt!) },
+          schedule: { at: new Date(task.reminderAt!), allowWhileIdle: true },
         };
       });
 
@@ -2465,27 +2512,74 @@ function initApp(): void {
             schedule,
           })),
         });
+        for (const item of upcoming) {
+          scheduledNativeReminderKeys.add(item.key);
+        }
+        persistKeySet(SCHEDULED_NATIVE_REMINDERS_KEY, scheduledNativeReminderKeys);
       }
     } catch {
       // Ignore environments without LocalNotifications permissions
     }
   }
 
+  function showWebNotification(title: string, body: string, tag: string): void {
+    if (isNativeShellOrigin()) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
+    if (sw?.getRegistration) {
+      void sw
+        .getRegistration()
+        .then((reg) => {
+          if (reg?.showNotification) {
+            return reg.showNotification(title, { body, tag });
+          }
+          new Notification(title, { body, tag });
+          return undefined;
+        })
+        .catch(() => {
+          try {
+            new Notification(title, { body, tag });
+          } catch {
+            // Ignore environments where Notification constructor is restricted
+          }
+        });
+      return;
+    }
+    try {
+      new Notification(title, { body, tag });
+    } catch {
+      // Ignore environments where Notification constructor is restricted
+    }
+  }
+
   function checkDueReminders(): void {
-    const dueTasks = getDueReminderTasks(store.tasks, Date.now(), firedReminderKeys);
+    const nowMs = Date.now();
+    const dueTasks = getDueReminderTasks(store.tasks, nowMs, firedReminderKeys);
+    if (dueTasks.length === 0) return;
+
+    let firedChanged = false;
     for (const task of dueTasks) {
-      if (task.reminderAt) {
-        firedReminderKeys.add(`${task.id}:${task.reminderAt}`);
+      if (!task.reminderAt) continue;
+      const key = `${task.id}:${task.reminderAt}`;
+      firedReminderKeys.add(key);
+      firedChanged = true;
+
+      const dueMs = Date.parse(task.reminderAt);
+      const alreadyDeliveredInNativeBackground =
+        isNativeShellOrigin() &&
+        scheduledNativeReminderKeys.has(key) &&
+        Number.isFinite(dueMs) &&
+        nowMs - dueMs > 60_000;
+      if (alreadyDeliveredInNativeBackground) {
+        continue;
       }
+
       if (store.soundEnabled) playPlingChime();
       showToast(`⏰ ${t(store.locale, 'task.reminderToastPrefix')}: ${task.title}`);
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try {
-          new Notification('Plinglist', { body: task.title });
-        } catch {
-          // Ignore environments where Notification constructor is restricted
-        }
-      }
+      showWebNotification('Plinglist', task.title, key);
+    }
+    if (firedChanged) {
+      persistKeySet(FIRED_REMINDERS_STORAGE_KEY, firedReminderKeys);
     }
   }
 

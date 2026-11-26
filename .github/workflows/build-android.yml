@@ -98,7 +98,7 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null || true
           fi
 
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
+          npm install --save-dev @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
           npx cap add android
           if [ -d cloud/scripts ]; then
             bash cloud/scripts/apply-brand-overlay.sh || true
@@ -207,6 +207,19 @@ jobs:
 
             const manifestPath = 'android/app/src/main/AndroidManifest.xml';
             let manifest = fs.readFileSync(manifestPath, 'utf8');
+            const neededPermissions = [
+              'android.permission.POST_NOTIFICATIONS',
+              'android.permission.SCHEDULE_EXACT_ALARM',
+              'android.permission.USE_EXACT_ALARM',
+              'android.permission.RECEIVE_BOOT_COMPLETED',
+              'android.permission.WAKE_LOCK',
+            ].filter((perm) => !manifest.includes(perm));
+            if (neededPermissions.length > 0) {
+              const permTags = neededPermissions
+                .map((perm) => `    <uses-permission android:name="${perm}" />`)
+                .join('\n');
+              manifest = manifest.replace('<application', `${permTags}\n\n    <application`);
+            }
             if (!manifest.includes('android:scheme="plinglist"')) {
               const deepLinkFilters = `
             <intent-filter>
@@ -222,8 +235,8 @@ jobs:
                 <data android:scheme="https" android:host="plinglist.app" />
             </intent-filter>`;
               manifest = manifest.replace('</activity>', `${deepLinkFilters}\n        </activity>`);
-              fs.writeFileSync(manifestPath, manifest);
             }
+            fs.writeFileSync(manifestPath, manifest);
 
             const lightStylesPath = 'android/app/src/main/res/values/styles.xml';
             const lightStylesXml = [

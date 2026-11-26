@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.28] - 2026-11-26
+
+### Deutsch
+- Zuverlässigere Erinnerungen: Erinnerungen melden sich pünktlich und jeweils nur einmal statt bei jedem erneuten Öffnen.
+- Einfacheres Koppeln & klares Design: Eingefügte Koppel- und Einladungslinks werden direkt gekürzt, helle und dunkle Designs behalten optimalen Kontrast, und erledigte Momente zeigen einheitlich „Pling. Done.“.
+
+### English
+- More reliable reminders: Scheduled reminders notify on time and fire only once instead of repeating on reopen.
+- Smoother pairing and clearer contrast: Pasted pairing and invite links extract the short key directly, light and dark themes keep crisp system-bar contrast, and "Pling. Done." now unifies confirmations and empty states.
+
 ## [0.1.27] - 2026-11-26
 
 ### Deutsch

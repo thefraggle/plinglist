@@ -89,7 +89,7 @@ jobs:
       - name: Initialize & Sync Capacitor 7 iOS Project (iOS + Mac Catalyst)
         if: ${{ inputs.target_platform != 'metadata-only' }}
         run: |
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/app@7 @capacitor/local-notifications@7
+          npm install --save-dev @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/app@7 @capacitor/local-notifications@7
           npx cap add ios
           if [ -d cloud/scripts ]; then
             bash cloud/scripts/apply-brand-overlay.sh || true
