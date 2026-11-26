@@ -10,10 +10,10 @@
 Plinglist is a fast, local-first, bilingual (EN/DE) successor to **Wunderlist** and **Microsoft To Do** (ahead of the June 30, 2027 Microsoft To Do shutdown).
 
 - **Local-First & Offline-Ready:** Instant startup (`< 200 ms`), synchronous local writes (`localStorage`), deterministic field-level Last-Write-Wins (HLC) delta sync (`lastPushedHlc`), and Network-First `Service Worker` offline support (`sw.js`).
-- **6 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with recurrences), *All / Alle*, *Tasks / Aufgaben*, and *Custom & Shared Lists* (`?join=`), plus debounced live search (`?q=`) and URL state persistence (`?view=`).
-- **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), automatic GDPR tombstone content scrubbing on delete, and 1-click workspace erasure (`DELETE /api/v1/sync`).
-- **1-Click Migration:** Built-in importers for **Wunderlist (JSON)** and **Microsoft To Do (JSON & CSV)**.
-- **Open Core, Web/PWA & Native Apple / Android Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 packaging (`de.goork.plinglist`), Universal Links / Android App Links (`/.well-known/`), and automated `v*` tag workflows for iOS, iPadOS, macOS (Mac Catalyst), and Android.
+- **8 Smart & Custom Views (Strict YAGNI):** *My Day / Mein Tag* (midnight reset + smart suggestions), *Starred / Wichtig*, *Planned / Geplant* (with Overdue/Today/Tomorrow/Week/Later filters & recurrences), *All / Alle*, *Tasks / Aufgaben*, *Assigned to me / Mir zugewiesen*, *Custom & Shared Lists* (`?join=`, grouped in folders, sortable & duplicable), and *7-Day Trash / Papierkorb*, plus `#hashtags`, debounced live search (`?q=`), and URL state (`?view=`).
+- **Zero-Auth Device Pairing & GDPR Privacy:** Pair devices via Sync-Key (`?pair=`), toggleable Cloud Sync (optional `Local-Only` mode), 7-day trash before automatic GDPR tombstone content scrubbing (or immediate empty/delete), and 1-click workspace erasure (`DELETE /api/v1/sync`).
+- **1-Click Migration:** Built-in importers for **Wunderlist (JSON, incl. folders)** and **Microsoft To Do (JSON & CSV)**.
+- **Open Core, Web/PWA & Native Apple / Android Ready:** Defaults to same-origin sync (`getDefaultServerUrl()`) or a configurable custom `Server URL` via `docker compose` (SQLite WAL), plus Capacitor 7 packaging (`de.goork.plinglist`), local background reminder notifications, Universal Links / Android App Links (`/.well-known/`), and automated `v*` tag workflows for iOS, iPadOS, macOS (Mac Catalyst), and Android.
 
 ---
 
@@ -48,7 +48,7 @@ To keep the public open-core repository lightweight and dependency-free (`npm te
 
 ```bash
 npm run build
-npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7 @capacitor/app@7
+npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/ios@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
 npx cap add ios && npx cap sync ios
 npx cap add android && npx cap sync android
 ```
@@ -91,7 +91,7 @@ docker compose up -d --build
 ## Documentation & Governance
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — System diagram, HLC conflict resolution, SQLite WAL schema, and API contract
-- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.26`)
+- [CHANGELOG.md](CHANGELOG.md) — Release history (`v0.1.0` – `v0.1.27`)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Coding, TDD, and i18n guidelines
 - [SECURITY.md](SECURITY.md) — Vulnerability disclosure policy
 - [TRADEMARK.md](TRADEMARK.md) — Mandatory rebranding policy for forks and public deployments

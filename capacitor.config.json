@@ -3,7 +3,8 @@
   "appName": "Plinglist",
   "webDir": "app/dist",
   "includePlugins": [
-    "@capacitor/app"
+    "@capacitor/app",
+    "@capacitor/local-notifications"
   ],
   "ios": {
     "contentInset": "never",

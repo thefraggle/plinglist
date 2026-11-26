@@ -9,7 +9,40 @@ export type RecurrencePattern =
   | 'monthly'
   | 'yearly';
 
-export type SmartViewId = 'my-day' | 'starred' | 'planned' | 'all' | 'tasks' | 'lists';
+export type SmartViewId =
+  | 'my-day'
+  | 'starred'
+  | 'planned'
+  | 'all'
+  | 'tasks'
+  | 'assigned'
+  | 'lists'
+  | 'trash';
+
+export type PlannedFilterId =
+  | 'all'
+  | 'overdue'
+  | 'today'
+  | 'tomorrow'
+  | 'this-week'
+  | 'later';
+
+export type TaskSortMode = 'default' | 'due-date' | 'starred' | 'title';
+
+export type ListAccessRole = 'owner' | 'editor' | 'viewer';
+
+export const FREE_MAX_DEVICES = 2;
+export const FREE_MAX_OWNED_SHARED_LISTS = 1;
+export const FREE_TRASH_RETENTION_DAYS = 7;
+export const PRO_SNAPSHOT_RETENTION_DAYS = 30;
+
+export interface WorkspaceSnapshotMeta {
+  id: string;
+  snapshotDay: string;
+  createdAt: string;
+  listCount: number;
+  taskCount: number;
+}
 
 export interface TaskStep {
   id: string;
@@ -30,6 +63,8 @@ export type MergeableTaskField =
   | 'recurrence'
   | 'note'
   | 'steps'
+  | 'assignee'
+  | 'position'
   | 'deletedAt';
 
 export type FieldHlcMap = Partial<Record<MergeableTaskField, HlcTimestamp>>;
@@ -50,6 +85,8 @@ export interface TaskItem {
   recurrence: RecurrencePattern | null;
   note: string;
   steps: TaskStep[];
+  assignee?: string | null;
+  position?: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -60,8 +97,12 @@ export interface TaskItem {
 export interface TaskList {
   id: ListId;
   title: string;
+  folder?: string | null;
+  position?: number;
   shared: boolean;
   inviteToken: string | null;
+  readonlyInviteToken?: string | null;
+  accessRole?: ListAccessRole;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

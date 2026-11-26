@@ -4,9 +4,12 @@ import {
   HlcClock,
   compareHlc,
   computeNextDueDate,
+  extractHashtags,
+  filterPlannedTasks,
   filterTasksByQuery,
   formatHlc,
   getAllOpenTasks,
+  getAssignedTasks,
   getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
@@ -16,6 +19,7 @@ import {
   importMicrosoftToDoCsv,
   importMicrosoftToDoJson,
   importWunderlistJson,
+  isTaskOverdue,
   mergeListLww,
   mergeTaskLww,
   sortTasksForView,
@@ -324,4 +328,61 @@ test('filterTasksByQuery matches title, note, and step titles case-insensitively
   assert.deepEqual(filterTasksByQuery(tasks, 'MAHLGRAD').map((t) => t.id), ['t1']);
   assert.deepEqual(filterTasksByQuery(tasks, 'belege').map((t) => t.id), ['t2']);
   assert.deepEqual(filterTasksByQuery(tasks, 'unbekannt'), []);
+});
+
+test('planned filters, overdue detection, hashtags, assignees, sort modes, and Wunderlist folders work cleanly', () => {
+  const today = '2026-11-26';
+  const overdue = makeTask({ id: 't-over', dueDate: '2026-11-24', title: 'Steuern #finanzen', assignee: 'Daniel' });
+  const dueToday = makeTask({ id: 't-today', dueDate: '2026-11-26', title: 'Brot @Daniel #einkauf', starred: true });
+  const dueTomorrow = makeTask({ id: 't-tmr', dueDate: '2026-11-27', title: 'Alpha Task' });
+  const dueWeek = makeTask({ id: 't-week', dueDate: '2026-12-01', title: 'Beta Task' });
+  const dueLater = makeTask({ id: 't-later', dueDate: '2026-12-20', title: 'Urlaub planen' });
+  const tasks = [overdue, dueToday, dueTomorrow, dueWeek, dueLater];
+
+  assert.equal(isTaskOverdue(overdue, today), true);
+  assert.equal(isTaskOverdue(dueToday, today), false);
+
+  assert.deepEqual(filterPlannedTasks(tasks, 'all', today).map((t) => t.id), [
+    't-over',
+    't-today',
+    't-tmr',
+    't-week',
+    't-later',
+  ]);
+  assert.deepEqual(filterPlannedTasks(tasks, 'overdue', today).map((t) => t.id), ['t-over']);
+  assert.deepEqual(filterPlannedTasks(tasks, 'today', today).map((t) => t.id), ['t-today']);
+  assert.deepEqual(filterPlannedTasks(tasks, 'tomorrow', today).map((t) => t.id), ['t-tmr']);
+  assert.deepEqual(filterPlannedTasks(tasks, 'this-week', today).map((t) => t.id), [
+    't-today',
+    't-tmr',
+    't-week',
+  ]);
+  assert.deepEqual(filterPlannedTasks(tasks, 'later', today).map((t) => t.id), ['t-later']);
+
+  assert.deepEqual(extractHashtags('Steuern #finanzen #Einkauf #finanzen'), ['#finanzen', '#Einkauf']);
+  assert.deepEqual(getAssignedTasks(tasks, 'daniel').map((t) => t.id), ['t-over', 't-today']);
+
+  assert.deepEqual(sortTasksForView(tasks, false, 'title').map((t) => t.id), [
+    't-tmr',
+    't-week',
+    't-today',
+    't-over',
+    't-later',
+  ]);
+  assert.deepEqual(sortTasksForView([overdue, dueToday], false, 'starred').map((t) => t.id), [
+    't-today',
+    't-over',
+  ]);
+
+  const wlWithFolders = importWunderlistJson(
+    JSON.stringify({
+      data: {
+        folders: [{ id: 1, title: 'Workshops', list_ids: [10] }],
+        lists: [{ id: 10, title: 'Workshop Q3' }],
+        tasks: [],
+      },
+    }),
+    formatHlc(5000, 0, 'wl'),
+  );
+  assert.equal(wlWithFolders.lists[0].folder, 'Workshops');
 });

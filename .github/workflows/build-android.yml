@@ -98,7 +98,7 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" > /dev/null || true
           fi
 
-          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7
+          npm install --no-save @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/app@7 @capacitor/local-notifications@7
           npx cap add android
           if [ -d cloud/scripts ]; then
             bash cloud/scripts/apply-brand-overlay.sh || true

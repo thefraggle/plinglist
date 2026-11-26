@@ -1,16 +1,24 @@
 import {
+  computeNextDueDate,
+  extractHashtags,
+  filterPlannedTasks,
   filterTasksByQuery,
   getAllOpenTasks,
+  getAssignedTasks,
   getDueReminderTasks,
   getListTasks,
   getMyDaySuggestions,
   getMyDayTasks,
   getPlannedTasks,
   getStarredTasks,
+  isTaskOverdue,
   sortTasksForView,
+  type PlannedFilterId,
   type RecurrencePattern,
   type SmartViewId,
   type TaskItem,
+  type TaskList,
+  type TaskSortMode,
 } from '../../packages/core/src/index.ts';
 import { CC0_CHIME_NOTES, CHIME_MASTER_GAIN } from './audio.ts';
 import {
@@ -25,7 +33,7 @@ import {
   isNativeShellOrigin,
 } from './config.ts';
 import { t, type TranslationKey } from './i18n.ts';
-import { PlinglistStore, getLocalIsoDate } from './store.ts';
+import { PlinglistStore, SharedListLimitError, getLocalIsoDate } from './store.ts';
 
 let audioContext: AudioContext | null = null;
 let brandPlingBuffer: AudioBuffer | null = null;
@@ -213,11 +221,17 @@ function initApp(): void {
     'planned',
     'all',
     'tasks',
+    'assigned',
     'lists',
+    'trash',
   ]);
   const initialViewParam = startupParams.get('view') as SmartViewId | null;
   let activeView: SmartViewId =
     initialViewParam && VALID_VIEWS.has(initialViewParam) ? initialViewParam : 'my-day';
+  let activePlannedFilter: PlannedFilterId = 'all';
+  let activeSortMode: TaskSortMode = 'default';
+  let draggedTaskId: string | null = null;
+  let lastScheduledNotificationsSig = '';
   const initialListParam = startupParams.get('list')?.trim();
   let activeListId =
     initialListParam && store.getActiveLists().some((l) => l.id === initialListParam)
@@ -229,6 +243,7 @@ function initApp(): void {
   let hasSyncedOnce = false;
   let syncInFlight = false;
   let syncQueued = false;
+  let deviceLimitNotified = false;
   let syncDebounceTimer: number | undefined;
   let searchDebounceTimer: number | undefined;
   let lastAppliedLocale: string | null = null;
@@ -405,6 +420,7 @@ function initApp(): void {
       const result = await store.syncWithServer();
       if (result.synced) {
         hasSyncedOnce = true;
+        deviceLimitNotified = false;
         if (result.revokedLists > 0) {
           if (
             activeView === 'lists' &&
@@ -427,6 +443,9 @@ function initApp(): void {
         } else {
           updateSyncLabels();
         }
+      } else if (store.lastSyncErrorCode === 'DEVICE_LIMIT_REACHED' && !deviceLimitNotified) {
+        deviceLimitNotified = true;
+        showToast(t(store.locale, 'toast.deviceLimitReached'));
       }
     } finally {
       syncInFlight = false;
@@ -773,9 +792,40 @@ function initApp(): void {
     task: TaskItem,
     isSuggestion = false,
     listTitleById?: ReadonlyMap<string, string>,
+    orderedVisibleIds?: string[],
   ): HTMLLIElement {
     const li = document.createElement('li');
     li.className = `task-row${task.completed ? ' is-completed' : ''}`;
+    const readOnly = store.isReadOnlyList(task.listId);
+    const today = getLocalIsoDate();
+
+    if (!isSuggestion && !readOnly && !task.completed) {
+      li.draggable = true;
+      li.addEventListener('dragstart', (event) => {
+        draggedTaskId = task.id;
+        li.classList.add('is-dragging');
+        event.dataTransfer?.setData('text/plain', task.id);
+      });
+      li.addEventListener('dragend', () => {
+        draggedTaskId = null;
+        li.classList.remove('is-dragging');
+      });
+      li.addEventListener('dragover', (event) => {
+        if (draggedTaskId && draggedTaskId !== task.id) {
+          event.preventDefault();
+        }
+      });
+      li.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const sourceId = draggedTaskId ?? event.dataTransfer?.getData('text/plain');
+        if (sourceId && sourceId !== task.id) {
+          activeSortMode = 'default';
+          if (store.moveTaskOrder(sourceId, task.id, orderedVisibleIds)) {
+            render();
+          }
+        }
+      });
+    }
 
     const leftBtn = document.createElement('button');
     leftBtn.type = 'button';
@@ -784,6 +834,7 @@ function initApp(): void {
       leftBtn.textContent = '+';
       leftBtn.title = t(store.locale, 'myDay.addToMyDay');
       leftBtn.setAttribute('aria-label', t(store.locale, 'myDay.addToMyDay'));
+      leftBtn.disabled = readOnly;
       leftBtn.addEventListener('click', () => {
         store.toggleTaskMyDay(task.id, getLocalIsoDate());
         render();
@@ -792,6 +843,7 @@ function initApp(): void {
       leftBtn.className = 'task-check-btn';
       leftBtn.setAttribute('aria-label', t(store.locale, 'task.completeAria'));
       leftBtn.setAttribute('aria-pressed', String(task.completed));
+      leftBtn.disabled = readOnly;
       const circle = document.createElement('span');
       circle.className = 'task-check-circle';
       circle.setAttribute('aria-hidden', 'true');
@@ -815,6 +867,9 @@ function initApp(): void {
       });
     }
 
+    const mainCol = document.createElement('div');
+    mainCol.className = 'task-main-col';
+
     const mainBtn = document.createElement('button');
     mainBtn.type = 'button';
     mainBtn.className = 'task-main-btn';
@@ -824,39 +879,137 @@ function initApp(): void {
     titleSpan.className = 'task-title';
     titleSpan.textContent = task.title;
     mainBtn.appendChild(titleSpan);
+    mainCol.appendChild(mainBtn);
 
-    const metaParts: string[] = [];
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'task-meta';
+    const appendMetaText = (text: string): void => {
+      const span = document.createElement('span');
+      span.textContent = text;
+      metaDiv.appendChild(span);
+    };
+
     if (listTitleById && activeView !== 'lists') {
       const listName = listTitleById.get(task.listId);
-      if (listName) metaParts.push(listName);
+      if (listName) appendMetaText(listName);
     }
     if (task.steps.length > 0) {
       const doneSteps = task.steps.filter((s) => s.completed).length;
-      metaParts.push(`${doneSteps}/${task.steps.length} ${t(store.locale, 'task.steps')}`);
+      appendMetaText(`${doneSteps}/${task.steps.length} ${t(store.locale, 'task.steps')}`);
     }
-    if (task.dueDate) metaParts.push(formatShortDate(task.dueDate));
-    if (task.reminderAt) metaParts.push('⏰');
-    if (task.recurrence) metaParts.push(`↻ ${t(store.locale, RECURRENCE_LABEL_KEYS[task.recurrence])}`);
-    if (task.note.trim()) metaParts.push('📝');
+    if (task.dueDate) {
+      const dueSpan = document.createElement('span');
+      dueSpan.className = isTaskOverdue(task, today)
+        ? 'task-due-badge is-overdue'
+        : 'task-due-badge';
+      dueSpan.textContent = formatShortDate(task.dueDate);
+      metaDiv.appendChild(dueSpan);
+    }
+    if (task.reminderAt) appendMetaText('⏰');
+    if (task.recurrence) {
+      appendMetaText(`↻ ${t(store.locale, RECURRENCE_LABEL_KEYS[task.recurrence])}`);
+    }
+    if (task.note.trim()) appendMetaText('📝');
+    if (task.assignee?.trim()) appendMetaText(`@${task.assignee.trim()}`);
+    for (const tag of extractHashtags(task.title)) {
+      const tagBtn = document.createElement('button');
+      tagBtn.type = 'button';
+      tagBtn.className = 'task-tag-chip';
+      tagBtn.textContent = tag;
+      tagBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        searchQuery = tag;
+        if (searchInput) searchInput.value = tag;
+        render();
+      });
+      metaDiv.appendChild(tagBtn);
+    }
 
-    if (metaParts.length > 0) {
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'task-meta';
-      metaDiv.textContent = metaParts.join(' · ');
-      mainBtn.appendChild(metaDiv);
+    if (metaDiv.childNodes.length > 0) {
+      mainCol.appendChild(metaDiv);
     }
 
     const starBtn = document.createElement('button');
     starBtn.type = 'button';
     starBtn.className = 'task-star-btn';
     starBtn.setAttribute('aria-label', t(store.locale, 'task.starAria'));
+    starBtn.disabled = readOnly;
     setStarButtonState(starBtn, task.starred);
     starBtn.addEventListener('click', () => {
       store.toggleTaskStarred(task.id);
       render();
     });
 
-    li.append(leftBtn, mainBtn, starBtn);
+    li.append(leftBtn, mainCol, starBtn);
+    return li;
+  }
+
+  function createTrashRowElement(
+    entry: { kind: 'list'; item: TaskList } | { kind: 'task'; item: TaskItem },
+  ): HTMLLIElement {
+    const li = document.createElement('li');
+    li.className = 'task-row';
+
+    const spacer = document.createElement('span');
+    spacer.className = 'nav-glyph';
+    spacer.setAttribute('aria-hidden', 'true');
+    spacer.textContent = entry.kind === 'list' ? '▤' : '○';
+
+    const mainDiv = document.createElement('div');
+    mainDiv.className = 'task-main-btn';
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'task-title';
+    titleSpan.textContent = entry.item.title;
+    mainDiv.appendChild(titleSpan);
+
+    const metaParts: string[] = [];
+    if (entry.kind === 'list') {
+      metaParts.push(t(store.locale, 'trash.listBadge'));
+    }
+    if (entry.item.deletedAt) {
+      metaParts.push(formatShortDate(entry.item.deletedAt.slice(0, 10)));
+    }
+    if (metaParts.length > 0) {
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'task-meta';
+      metaDiv.textContent = metaParts.join(' · ');
+      mainDiv.appendChild(metaDiv);
+    }
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'trash-row-actions';
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 'btn-secondary btn-compact';
+    restoreBtn.textContent = t(store.locale, 'trash.restoreBtn');
+    restoreBtn.addEventListener('click', () => {
+      if (entry.kind === 'list') {
+        store.restoreList(entry.item.id);
+      } else {
+        store.restoreTask(entry.item.id);
+      }
+      showToast(t(store.locale, 'toast.restored'));
+      render();
+    });
+
+    const permDeleteBtn = document.createElement('button');
+    permDeleteBtn.type = 'button';
+    permDeleteBtn.className = 'btn-ghost btn-compact';
+    permDeleteBtn.textContent = '×';
+    permDeleteBtn.title = t(store.locale, 'trash.deletePermanentBtn');
+    permDeleteBtn.setAttribute('aria-label', t(store.locale, 'trash.deletePermanentBtn'));
+    permDeleteBtn.addEventListener('click', () => {
+      if (entry.kind === 'list') {
+        store.permanentlyDeleteList(entry.item.id);
+      } else {
+        store.permanentlyDeleteTask(entry.item.id);
+      }
+      render();
+    });
+
+    actionsDiv.append(restoreBtn, permDeleteBtn);
+    li.append(spacer, mainDiv, actionsDiv);
     return li;
   }
 
@@ -878,8 +1031,10 @@ function initApp(): void {
       store.preferences.autoAddDueTodayToMyDay,
     );
     const starredItems = getStarredTasks(store.tasks);
-    const plannedItems = getPlannedTasks(store.tasks);
+    const plannedItems = filterPlannedTasks(store.tasks, activePlannedFilter, today);
+    const allPlannedCount = getPlannedTasks(store.tasks).length;
     const allItems = getAllOpenTasks(store.tasks);
+    const assignedItems = getAssignedTasks(store.tasks, store.preferences.displayName);
     const systemTasksItems = getListTasks(store.tasks, defaultTasksId);
     const suggestions = getMyDaySuggestions(
       store.tasks,
@@ -888,9 +1043,13 @@ function initApp(): void {
     );
 
     const openStarredCount = starredItems.length;
-    const openPlannedCount = plannedItems.length;
+    const openPlannedCount = allPlannedCount;
     const openAllCount = allItems.length;
+    const openAssignedCount = assignedItems.length;
     const openSystemTasksCount = systemTasksItems.filter((item) => !item.completed).length;
+    const deletedLists = store.getDeletedLists();
+    const deletedTasks = store.getDeletedTasks();
+    const trashCount = deletedLists.length + deletedTasks.length;
 
     (document.getElementById('countMyDay') as HTMLElement).textContent = String(
       myDayItems.filter((item) => !item.completed).length,
@@ -899,10 +1058,16 @@ function initApp(): void {
     (document.getElementById('countPlanned') as HTMLElement).textContent = String(openPlannedCount);
     (document.getElementById('countAll') as HTMLElement).textContent = String(openAllCount);
     (document.getElementById('countTasks') as HTMLElement).textContent = String(openSystemTasksCount);
+    const countAssignedEl = document.getElementById('countAssigned');
+    if (countAssignedEl) countAssignedEl.textContent = String(openAssignedCount);
+    const countTrashEl = document.getElementById('countTrash');
+    if (countTrashEl) countTrashEl.textContent = String(trashCount);
 
     const navStarred = document.getElementById('navSmartStarred') as HTMLButtonElement | null;
     const navPlanned = document.getElementById('navSmartPlanned') as HTMLButtonElement | null;
     const navAll = document.getElementById('navSmartAll') as HTMLButtonElement | null;
+    const navAssigned = document.getElementById('navSmartAssigned') as HTMLButtonElement | null;
+    const navTrash = document.getElementById('navSmartTrash') as HTMLButtonElement | null;
     const hideStarred =
       store.preferences.autoHideEmptySmartLists &&
       openStarredCount === 0 &&
@@ -922,6 +1087,16 @@ function initApp(): void {
       const hiddenByEmpty = store.preferences.autoHideEmptySmartLists && openAllCount === 0;
       navAll.hidden = (hiddenByPref || hiddenByEmpty) && activeView !== 'all';
     }
+    if (navAssigned) {
+      navAssigned.hidden =
+        openAssignedCount === 0 &&
+        !store.preferences.displayName.trim() &&
+        activeView !== 'assigned';
+    }
+    if (navTrash) {
+      navTrash.hidden =
+        store.preferences.autoHideEmptySmartLists && trashCount === 0 && activeView !== 'trash';
+    }
 
     const mobileStarredTab = document.querySelector<HTMLButtonElement>('[data-mobile-view="starred"]');
     const mobilePlannedTab = document.querySelector<HTMLButtonElement>('[data-mobile-view="planned"]');
@@ -939,12 +1114,18 @@ function initApp(): void {
     });
     mobileListsBtn?.setAttribute(
       'aria-current',
-      activeView === 'lists' || activeView === 'tasks' || activeView === 'all' ? 'page' : 'false',
+      activeView === 'lists' ||
+        activeView === 'tasks' ||
+        activeView === 'all' ||
+        activeView === 'assigned' ||
+        activeView === 'trash'
+        ? 'page'
+        : 'false',
     );
 
     const listsNav = document.getElementById('customListsNav') as HTMLElement;
     listsNav.replaceChildren();
-    for (const list of customLists) {
+    const createCustomListNavButton = (list: TaskList): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-item';
@@ -980,7 +1161,38 @@ function initApp(): void {
         closeMobileDrawer();
         render();
       });
-      listsNav.appendChild(btn);
+      return btn;
+    };
+
+    const listsByFolder = new Map<string, TaskList[]>();
+    const ungroupedLists: TaskList[] = [];
+    for (const list of customLists) {
+      const folderName = list.folder?.trim();
+      if (folderName) {
+        const group = listsByFolder.get(folderName) ?? [];
+        group.push(list);
+        listsByFolder.set(folderName, group);
+      } else {
+        ungroupedLists.push(list);
+      }
+    }
+    for (const [folderName, folderLists] of listsByFolder.entries()) {
+      const details = document.createElement('details');
+      details.className = 'list-folder';
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.className = 'list-folder-summary';
+      summary.textContent = folderName;
+      const itemsWrap = document.createElement('div');
+      itemsWrap.className = 'list-folder-items';
+      for (const list of folderLists) {
+        itemsWrap.appendChild(createCustomListNavButton(list));
+      }
+      details.append(summary, itemsWrap);
+      listsNav.appendChild(details);
+    }
+    for (const list of ungroupedLists) {
+      listsNav.appendChild(createCustomListNavButton(list));
     }
 
     const viewTitle = document.getElementById('viewTitle') as HTMLElement;
@@ -989,21 +1201,75 @@ function initApp(): void {
     const currentList =
       activeView === 'lists' ? customLists.find((l) => l.id === activeListId) : undefined;
     const isCustomList = Boolean(currentList);
+    const isForeignList = Boolean(currentList && store.isForeignJoinedList(currentList));
+    const isReadOnlyList = Boolean(currentList && currentList.accessRole === 'viewer');
     const renameListBtn = document.getElementById('renameListBtn') as HTMLButtonElement | null;
+    const duplicateListBtn = document.getElementById('duplicateListBtn') as HTMLButtonElement | null;
     const deleteListBtn = document.getElementById('deleteListBtn') as HTMLButtonElement | null;
     const shareListBtn = document.getElementById('shareListBtn') as HTMLButtonElement | null;
+    const emptyTrashBtn = document.getElementById('emptyTrashBtn') as HTMLButtonElement | null;
+    const viewSortSelect = document.getElementById('viewSortSelect') as HTMLSelectElement | null;
+    const plannedFilterBar = document.getElementById('plannedFilterBar') as HTMLElement | null;
     if (renameListBtn) {
-      renameListBtn.hidden = !isCustomList;
+      renameListBtn.hidden = !isCustomList || isForeignList;
+    }
+    if (duplicateListBtn) {
+      duplicateListBtn.hidden = !isCustomList || isForeignList;
     }
     if (shareListBtn) {
-      shareListBtn.hidden = !isCustomList;
+      shareListBtn.hidden = !isCustomList || isForeignList;
+    }
+    if (viewSortSelect) {
+      viewSortSelect.hidden = activeView === 'trash';
+      viewSortSelect.value = activeSortMode;
+    }
+    if (plannedFilterBar) {
+      plannedFilterBar.hidden = activeView !== 'planned';
+      plannedFilterBar.querySelectorAll<HTMLButtonElement>('[data-planned-filter]').forEach((btn) => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.plannedFilter === activePlannedFilter));
+      });
     }
     if (deleteListBtn) {
-      deleteListBtn.hidden = !isCustomList || Boolean(currentList?.shared);
+      deleteListBtn.hidden = !isCustomList || (!isForeignList && Boolean(currentList?.shared));
+      const deleteLabel = isForeignList
+        ? t(store.locale, 'list.leaveBtn')
+        : t(store.locale, 'list.delete');
+      deleteListBtn.setAttribute('aria-label', deleteLabel);
+      deleteListBtn.title = deleteLabel;
+    }
+    if (emptyTrashBtn) {
+      emptyTrashBtn.hidden = activeView !== 'trash' || trashCount === 0;
+    }
+
+    const addTaskFormEl = document.getElementById('addTaskForm') as HTMLFormElement | null;
+    if (addTaskFormEl) {
+      addTaskFormEl.hidden = activeView === 'trash' || isReadOnlyList;
     }
 
     let visibleTasks: TaskItem[] = [];
     suggestionsSection.hidden = activeView !== 'my-day' || suggestions.length === 0;
+
+    if (activeView === 'trash') {
+      viewTitle.textContent = t(store.locale, 'nav.trash');
+      viewSubtitle.textContent = t(store.locale, 'trash.subtitle');
+      viewSubtitle.hidden = false;
+
+      const activeListEl = document.getElementById('activeTasksList') as HTMLUListElement;
+      const trashRows: HTMLLIElement[] = [
+        ...deletedLists.map((list) => createTrashRowElement({ kind: 'list', item: list })),
+        ...deletedTasks.map((task) => createTrashRowElement({ kind: 'task', item: task })),
+      ];
+      activeListEl.replaceChildren(...trashRows);
+
+      const emptyEl = document.getElementById('emptyStateText') as HTMLElement;
+      emptyEl.hidden = trashRows.length > 0;
+      emptyEl.textContent = t(store.locale, 'trash.empty');
+
+      const completedSection = document.getElementById('completedSection') as HTMLElement;
+      completedSection.hidden = true;
+      (document.getElementById('completedTasksList') as HTMLUListElement).replaceChildren();
+      return;
+    }
 
     if (activeView === 'my-day') {
       viewTitle.textContent = t(store.locale, 'nav.myDay');
@@ -1029,9 +1295,20 @@ function initApp(): void {
       viewTitle.textContent = t(store.locale, 'nav.tasks');
       viewSubtitle.textContent = '';
       visibleTasks = systemTasksItems;
+    } else if (activeView === 'assigned') {
+      viewTitle.textContent = t(store.locale, 'nav.assigned');
+      viewSubtitle.textContent = store.preferences.displayName.trim()
+        ? `@${store.preferences.displayName.trim().replace(/^@+/, '')}`
+        : '';
+      visibleTasks = assignedItems;
     } else {
       viewTitle.textContent = currentList?.title ?? t(store.locale, 'nav.lists');
-      viewSubtitle.textContent = currentList?.shared ? t(store.locale, 'list.sharedBadge') : '';
+      const folderPrefix = currentList?.folder?.trim() ? `${currentList.folder.trim()} · ` : '';
+      viewSubtitle.textContent = isReadOnlyList
+        ? `${folderPrefix}${t(store.locale, 'list.sharedBadge')} · ${t(store.locale, 'list.readOnlyBadge')}`
+        : currentList?.shared
+          ? `${folderPrefix}${t(store.locale, 'list.sharedBadge')}`
+          : currentList?.folder?.trim() ?? '';
       visibleTasks = currentList ? getListTasks(store.tasks, currentList.id) : [];
     }
     viewSubtitle.hidden = viewSubtitle.textContent.length === 0;
@@ -1051,12 +1328,14 @@ function initApp(): void {
     const openTasks = sortTasksForView(
       filteredVisible.filter((item) => !item.completed),
       store.preferences.moveStarredToTop,
+      activeSortMode,
     );
     const doneTasks = filteredVisible.filter((item) => item.completed);
+    const openTaskIds = openTasks.map((item) => item.id);
 
     const activeListEl = document.getElementById('activeTasksList') as HTMLUListElement;
     activeListEl.replaceChildren(
-      ...openTasks.map((item) => createTaskElement(item, false, listTitleById)),
+      ...openTasks.map((item) => createTaskElement(item, false, listTitleById, openTaskIds)),
     );
 
     const emptyEl = document.getElementById('emptyStateText') as HTMLElement;
@@ -1067,20 +1346,34 @@ function initApp(): void {
 
     const completedSection = document.getElementById('completedSection') as HTMLElement;
     const completedListEl = document.getElementById('completedTasksList') as HTMLUListElement;
+    const clearCompletedBtn = document.getElementById('clearCompletedBtn') as HTMLButtonElement | null;
     completedSection.hidden = doneTasks.length === 0;
+    if (clearCompletedBtn) {
+      clearCompletedBtn.hidden = doneTasks.length === 0 || isReadOnlyList;
+    }
     (document.getElementById('completedCount') as HTMLElement).textContent = String(doneTasks.length);
     completedListEl.replaceChildren(
       ...doneTasks.map((item) => createTaskElement(item, false, listTitleById)),
     );
+    void syncNativeLocalNotifications();
   }
 
   function refreshShareDialogState(listId: string): void {
     const urlInput = document.getElementById('shareInviteUrlInput') as HTMLInputElement;
     const unshareBtn = document.getElementById('unshareListBtn') as HTMLButtonElement;
+    const copyBtn = document.getElementById('copyInviteUrlBtn') as HTMLButtonElement | null;
+    const nativeBtn = document.getElementById('nativeShareInviteBtn') as HTMLButtonElement | null;
+    const freeLimitHint = document.getElementById('shareFreeLimitHint') as HTMLElement | null;
     const existingUrl = store.getInviteUrl(
       listId,
       getShareBaseOrigin(window.location.origin, store.serverUrl),
     );
+    const allowedToShare = listId ? store.canShareAnotherOwnedList(listId) : false;
+    if (freeLimitHint) {
+      freeLimitHint.hidden = allowedToShare || !listId;
+    }
+    if (copyBtn) copyBtn.disabled = !listId || !allowedToShare;
+    if (nativeBtn) nativeBtn.disabled = !listId || !allowedToShare;
     if (existingUrl) {
       urlInput.value = existingUrl;
       urlInput.placeholder = '';
@@ -1095,7 +1388,7 @@ function initApp(): void {
   function openShareModal(): void {
     const shareableLists = store
       .getActiveLists()
-      .filter((list) => !store.isSystemTasksList(list.id));
+      .filter((list) => !store.isSystemTasksList(list.id) && !store.isForeignJoinedList(list));
     const selectEl = document.getElementById('shareListSelect') as HTMLSelectElement;
     selectEl.replaceChildren();
     for (const list of shareableLists) {
@@ -1187,6 +1480,10 @@ function initApp(): void {
     (document.getElementById('detailRecurrenceSelect') as HTMLSelectElement).value =
       task.recurrence ?? '';
     (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value = task.note;
+    const detailAssigneeInput = document.getElementById(
+      'detailAssigneeInput',
+    ) as HTMLInputElement | null;
+    if (detailAssigneeInput) detailAssigneeInput.value = task.assignee ?? '';
     (document.getElementById('detailNewStepInput') as HTMLInputElement).value = '';
 
     const listSelect = document.getElementById('detailListSelect') as HTMLSelectElement | null;
@@ -1211,6 +1508,31 @@ function initApp(): void {
     const starBtn = document.getElementById('detailStarBtn') as HTMLButtonElement;
     starBtn.setAttribute('aria-pressed', String(task.starred));
     starBtn.textContent = `${task.starred ? '★' : '☆'} ${t(store.locale, 'nav.starred')}`;
+
+    const isReadOnly = store.isReadOnlyList(task.listId);
+    const detailControls: Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement | null> = [
+      document.getElementById('detailTitleInput') as HTMLInputElement | null,
+      document.getElementById('detailDueDateInput') as HTMLInputElement | null,
+      document.getElementById('detailReminderInput') as HTMLInputElement | null,
+      document.getElementById('detailRecurrenceSelect') as HTMLSelectElement | null,
+      document.getElementById('detailNoteInput') as HTMLTextAreaElement | null,
+      document.getElementById('detailAssigneeInput') as HTMLInputElement | null,
+      document.getElementById('presetDueTodayBtn') as HTMLButtonElement | null,
+      document.getElementById('presetDueTomorrowBtn') as HTMLButtonElement | null,
+      document.getElementById('presetDueNextWeekBtn') as HTMLButtonElement | null,
+      document.getElementById('presetRemTodayBtn') as HTMLButtonElement | null,
+      document.getElementById('presetRemTomorrowBtn') as HTMLButtonElement | null,
+      document.getElementById('detailNewStepInput') as HTMLInputElement | null,
+      document.getElementById('detailAddStepBtn') as HTMLButtonElement | null,
+      document.getElementById('detailDeleteBtn') as HTMLButtonElement | null,
+      listSelect,
+      myDayBtn,
+      starBtn,
+      document.querySelector('#taskDetailForm button[type="submit"]') as HTMLButtonElement | null,
+    ];
+    for (const ctrl of detailControls) {
+      if (ctrl) ctrl.disabled = isReadOnly;
+    }
 
     renderDetailSteps(task);
     if (!taskDialog.open) {
@@ -1326,27 +1648,80 @@ function initApp(): void {
     const currentList = store.getActiveLists().find((l) => l.id === activeListId);
     if (!currentList) return;
     (document.getElementById('renameListInput') as HTMLInputElement).value = currentList.title;
+    const folderInput = document.getElementById('renameListFolderInput') as HTMLInputElement | null;
+    if (folderInput) folderInput.value = currentList.folder ?? '';
+    const datalist = document.getElementById('folderSuggestionsList');
+    if (datalist) {
+      datalist.replaceChildren(
+        ...store.getListFolders().map((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          return opt;
+        }),
+      );
+    }
     renameListDialog.showModal();
   });
 
   document.getElementById('renameListForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const input = document.getElementById('renameListInput') as HTMLInputElement;
+    const folderInput = document.getElementById('renameListFolderInput') as HTMLInputElement | null;
     if (!input.value.trim()) return;
-    store.renameList(activeListId, input.value);
+    store.renameList(activeListId, input.value, folderInput ? folderInput.value : undefined);
     void closeTopLayer(renameListDialog);
     showToast(t(store.locale, 'list.renamedToast'));
     render();
   });
 
+  document.getElementById('duplicateListBtn')?.addEventListener('click', () => {
+    const currentList = store.getActiveLists().find((l) => l.id === activeListId);
+    if (!currentList || store.isSystemTasksList(activeListId) || store.isForeignJoinedList(currentList)) {
+      return;
+    }
+    const copy = store.duplicateList(currentList.id);
+    activeView = 'lists';
+    activeListId = copy.id;
+    showToast(t(store.locale, 'list.duplicatedToast'));
+    render();
+  });
+
+  document.getElementById('viewSortSelect')?.addEventListener('change', (event) => {
+    activeSortMode = (event.target as HTMLSelectElement).value as TaskSortMode;
+    render();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-planned-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activePlannedFilter = (btn.dataset.plannedFilter as PlannedFilterId) || 'all';
+      render();
+    });
+  });
+
+  document.getElementById('clearCompletedBtn')?.addEventListener('click', () => {
+    const count = store.clearCompletedTasks(
+      activeView === 'lists' ? activeListId : undefined,
+    );
+    if (count > 0) {
+      showToast(t(store.locale, 'toast.completedCleared'));
+      render();
+    }
+  });
+
   document.getElementById('deleteListBtn')?.addEventListener('click', () => {
     const currentList = store.getActiveLists().find((l) => l.id === activeListId);
-    if (
-      !currentList ||
-      currentList.shared ||
-      store.isSystemTasksList(activeListId) ||
-      store.getActiveLists().length <= 1
-    ) {
+    if (!currentList || store.isSystemTasksList(activeListId) || store.getActiveLists().length <= 1) {
+      return;
+    }
+    if (store.isForeignJoinedList(currentList)) {
+      store.leaveSharedList(currentList.id);
+      activeView = 'my-day';
+      activeListId = store.getDefaultTasksListId();
+      showToast(t(store.locale, 'toast.leftSharedList'));
+      render();
+      return;
+    }
+    if (currentList.shared) {
       return;
     }
     requestDeleteConfirmation(t(store.locale, 'confirm.deleteListPrompt'), () => {
@@ -1354,6 +1729,14 @@ function initApp(): void {
       activeView = 'my-day';
       activeListId = store.getDefaultTasksListId();
       showToast(t(store.locale, 'list.deletedToast'));
+      render();
+    });
+  });
+
+  document.getElementById('emptyTrashBtn')?.addEventListener('click', () => {
+    requestDeleteConfirmation(t(store.locale, 'trash.emptyBtn'), () => {
+      store.emptyTrash();
+      showToast(t(store.locale, 'toast.trashEmptied'));
       render();
     });
   });
@@ -1409,6 +1792,13 @@ function initApp(): void {
       trackDiagnostic('list_shared');
       const input = document.getElementById('shareInviteUrlInput') as HTMLInputElement | null;
       await copyWithFeedback(inviteUrl, input, 'list.inviteCopied');
+    } catch (err) {
+      if (err instanceof SharedListLimitError) {
+        refreshShareDialogState(listId);
+        showToast(t(store.locale, 'toast.shareLimitReached'));
+      } else {
+        throw err;
+      }
     } finally {
       delete btn.dataset.loading;
       btn.disabled = false;
@@ -1425,17 +1815,24 @@ function initApp(): void {
 
   document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
     const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
-    const { inviteUrl } = store.shareList(
-      listId,
-      getShareBaseOrigin(window.location.origin, store.serverUrl),
-    );
-    refreshShareDialogState(listId);
-    render();
-    void runSyncNow();
-    trackDiagnostic('list_shared');
-    await navigator
-      .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url: inviteUrl })
-      .catch(() => undefined);
+    try {
+      const { inviteUrl } = store.shareList(
+        listId,
+        getShareBaseOrigin(window.location.origin, store.serverUrl),
+      );
+      refreshShareDialogState(listId);
+      render();
+      void runSyncNow();
+      trackDiagnostic('list_shared');
+      await navigator
+        .share?.({ title: 'Plinglist', text: t(store.locale, 'share.listSectionTitle'), url: inviteUrl })
+        .catch(() => undefined);
+    } catch (err) {
+      if (err instanceof SharedListLimitError) {
+        refreshShareDialogState(listId);
+        showToast(t(store.locale, 'toast.shareLimitReached'));
+      }
+    }
   });
 
   document.getElementById('unshareListBtn')?.addEventListener('click', () => {
@@ -1471,7 +1868,7 @@ function initApp(): void {
         extractSyncKeyFromInput(rawValue).startsWith('pling-');
       if (looksLikePairing) {
         store.setSyncKey(rawValue, { forceReset: true });
-        await store.syncWithServer();
+        await store.syncWithServer(undefined, { replaceOldestDevice: true });
         selectBestViewAfterPairing();
         hasSyncedOnce = true;
         input.value = '';
@@ -1547,6 +1944,8 @@ function initApp(): void {
 
   function commitTaskDetailEdits(): void {
     if (!editingTaskId) return;
+    const currentTask = store.tasks.find((item) => item.id === editingTaskId);
+    if (!currentTask || store.isReadOnlyList(currentTask.listId)) return;
     addPendingStepFromDetailInput();
     const recurrenceVal = (
       document.getElementById('detailRecurrenceSelect') as HTMLSelectElement
@@ -1558,15 +1957,44 @@ function initApp(): void {
     }
     const listSelect = document.getElementById('detailListSelect') as HTMLSelectElement | null;
     const nextListId = listSelect?.value;
+    const assigneeInput = document.getElementById(
+      'detailAssigneeInput',
+    ) as HTMLInputElement | null;
     store.updateTask(editingTaskId, {
       title: (document.getElementById('detailTitleInput') as HTMLInputElement).value,
       dueDate: (document.getElementById('detailDueDateInput') as HTMLInputElement).value || null,
       reminderAt,
       recurrence: (recurrenceVal || null) as RecurrencePattern | null,
       note: (document.getElementById('detailNoteInput') as HTMLTextAreaElement).value,
+      ...(assigneeInput ? { assignee: assigneeInput.value } : {}),
       ...(nextListId ? { listId: nextListId } : {}),
     });
   }
+
+  document.getElementById('presetDueTodayBtn')?.addEventListener('click', () => {
+    (document.getElementById('detailDueDateInput') as HTMLInputElement).value = getLocalIsoDate();
+  });
+  document.getElementById('presetDueTomorrowBtn')?.addEventListener('click', () => {
+    (document.getElementById('detailDueDateInput') as HTMLInputElement).value = computeNextDueDate(
+      getLocalIsoDate(),
+      'daily',
+    );
+  });
+  document.getElementById('presetDueNextWeekBtn')?.addEventListener('click', () => {
+    (document.getElementById('detailDueDateInput') as HTMLInputElement).value = computeNextDueDate(
+      getLocalIsoDate(),
+      'weekly',
+    );
+  });
+  document.getElementById('presetRemTodayBtn')?.addEventListener('click', () => {
+    (document.getElementById('detailReminderInput') as HTMLInputElement).value =
+      `${getLocalIsoDate()}T18:00`;
+  });
+  document.getElementById('presetRemTomorrowBtn')?.addEventListener('click', () => {
+    const tomorrow = computeNextDueDate(getLocalIsoDate(), 'daily');
+    (document.getElementById('detailReminderInput') as HTMLInputElement).value =
+      `${tomorrow}T09:00`;
+  });
 
   document.getElementById('taskDetailForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -1671,6 +2099,10 @@ function initApp(): void {
     closeMobileDrawer();
     selectSettingsTab('general');
     (document.getElementById('settingsLocaleSelect') as HTMLSelectElement).value = store.locale;
+    const displayNameInput = document.getElementById(
+      'settingsDisplayNameInput',
+    ) as HTMLInputElement | null;
+    if (displayNameInput) displayNameInput.value = store.preferences.displayName;
     const syncKeyInput = document.getElementById('settingsSyncKeyInput') as HTMLInputElement;
     syncKeyInput.value = store.syncKey;
     syncKeyInput.readOnly = true;
@@ -1841,6 +2273,12 @@ function initApp(): void {
         document.getElementById('settingsShowAllListCheckbox') as HTMLInputElement
       ).checked,
       syncEnabled: syncEnabledEl ? syncEnabledEl.checked : store.preferences.syncEnabled,
+      displayName:
+        (
+          document.getElementById('settingsDisplayNameInput') as HTMLInputElement | null
+        )?.value
+          .trim()
+          .replace(/^@+/, '') ?? store.preferences.displayName,
       telemetryEnabled:
         store.isTelemetrySupported() &&
         (document.getElementById('settingsTelemetryCheckbox') as HTMLInputElement).checked,
@@ -1866,7 +2304,7 @@ function initApp(): void {
       errEl.hidden = true;
       await closeTopLayer(settingsDialog);
       if (keyChanged) {
-        const res = await store.syncWithServer();
+        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
         if (res.synced) {
           hasSyncedOnce = true;
           selectBestViewAfterPairing();
@@ -1887,6 +2325,84 @@ function initApp(): void {
       errEl.hidden = false;
     }
   });
+
+  async function syncNativeLocalNotifications(): Promise<void> {
+    if (!isNativeShellOrigin()) return;
+    const localNotifications = (
+      window as {
+        Capacitor?: {
+          Plugins?: {
+            LocalNotifications?: {
+              checkPermissions?: () => Promise<{ display?: string }>;
+              requestPermissions?: () => Promise<{ display?: string }>;
+              getPending?: () => Promise<{ notifications?: Array<{ id: number }> }>;
+              cancel?: (opts: { notifications: Array<{ id: number }> }) => Promise<void>;
+              schedule?: (opts: {
+                notifications: Array<{
+                  id: number;
+                  title: string;
+                  body: string;
+                  schedule: { at: Date };
+                }>;
+              }) => Promise<void>;
+            };
+          };
+        };
+      }
+    ).Capacitor?.Plugins?.LocalNotifications;
+    if (!localNotifications?.schedule) return;
+
+    const nowMs = Date.now();
+    const upcoming = store.tasks
+      .filter((task) => {
+        if (task.deletedAt !== null || task.completed || !task.reminderAt) return false;
+        const atMs = Date.parse(task.reminderAt);
+        return Number.isFinite(atMs) && atMs > nowMs + 2000;
+      })
+      .map((task) => {
+        let hash = 2166136261;
+        const key = `${task.id}:${task.reminderAt}`;
+        for (let i = 0; i < key.length; i += 1) {
+          hash ^= key.charCodeAt(i);
+          hash = Math.imul(hash, 16777619);
+        }
+        return {
+          id: (hash & 0x7fffffff) || 1,
+          title: 'Plinglist',
+          body: task.title,
+          atIso: task.reminderAt!,
+          schedule: { at: new Date(task.reminderAt!) },
+        };
+      });
+
+    const sig = upcoming.map((n) => `${n.id}@${n.atIso}:${n.body}`).join('|');
+    if (sig === lastScheduledNotificationsSig) return;
+    lastScheduledNotificationsSig = sig;
+
+    try {
+      const perm = await localNotifications.checkPermissions?.();
+      if (perm?.display !== 'granted' && upcoming.length > 0) {
+        const requested = await localNotifications.requestPermissions?.();
+        if (requested?.display !== 'granted') return;
+      }
+      const pending = await localNotifications.getPending?.();
+      if (pending?.notifications?.length) {
+        await localNotifications.cancel?.({ notifications: pending.notifications });
+      }
+      if (upcoming.length > 0) {
+        await localNotifications.schedule({
+          notifications: upcoming.map(({ id, title, body, schedule }) => ({
+            id,
+            title,
+            body,
+            schedule,
+          })),
+        });
+      }
+    } catch {
+      // Ignore environments without LocalNotifications permissions
+    }
+  }
 
   function checkDueReminders(): void {
     const dueTasks = getDueReminderTasks(store.tasks, Date.now(), firedReminderKeys);
@@ -1983,7 +2499,7 @@ function initApp(): void {
     if (pairCandidate?.trim()) {
       try {
         store.setSyncKey(extractSyncKeyFromInput(trimmed), { forceReset: true });
-        await store.syncWithServer();
+        await store.syncWithServer(undefined, { replaceOldestDevice: true });
         selectBestViewAfterPairing();
         hasSyncedOnce = true;
         syncDialogKeyFieldsAfterDeepLink();
@@ -2091,7 +2607,7 @@ function initApp(): void {
       try {
         // Apply syncKey synchronously before any await so focus/visibility listeners never sync the throwaway key.
         store.setSyncKey(pairKey, { forceReset: true });
-        await store.syncWithServer();
+        await store.syncWithServer(undefined, { replaceOldestDevice: true });
         selectBestViewAfterPairing();
         hasSyncedOnce = true;
         didStartupSync = true;

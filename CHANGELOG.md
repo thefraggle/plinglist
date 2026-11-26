@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.27] - 2026-11-26
+
+### Deutsch
+- Bessere Übersicht bei Terminen: Filter für Überfällig, Heute, Morgen, Diese Woche und Später, rote Markierung überfälliger Aufgaben sowie Schnellauswahl für Datum und Erinnerung.
+- Listen-Ordner, Listenduplikate, frei wählbare Sortierung (Fälligkeit, Wichtigkeit, A–Z oder manuell per Ziehen), klickbare #Tags, @Zuweisungen in geteilten Listen und 7-Tage-Papierkorb.
+
+### English
+- Clearer scheduling: Filters for Overdue, Today, Tomorrow, This week, and Later, red overdue dates, and quick date and reminder presets.
+- List folders, list duplication, flexible sorting (due date, importance, A–Z, or drag reordering), clickable #tags, @assignments in shared lists, and a 7-day trash for accidental deletions.
+
 ## [0.1.26] - 2026-11-25
 
 ### Deutsch

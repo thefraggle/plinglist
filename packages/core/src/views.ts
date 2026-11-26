@@ -1,4 +1,4 @@
-import type { RecurrencePattern, TaskItem } from './types.ts';
+import type { PlannedFilterId, RecurrencePattern, TaskItem, TaskSortMode } from './types.ts';
 
 function isActive(task: TaskItem): boolean {
   return task.deletedAt === null;
@@ -92,10 +92,74 @@ export function getStarredTasks(tasks: TaskItem[]): TaskItem[] {
   return tasks.filter((task) => isActive(task) && task.starred && !task.completed);
 }
 
+export function isTaskOverdue(task: TaskItem, todayIsoDate: string): boolean {
+  return (
+    isActive(task) &&
+    !task.completed &&
+    task.dueDate !== null &&
+    task.dueDate < todayIsoDate
+  );
+}
+
 export function getPlannedTasks(tasks: TaskItem[]): TaskItem[] {
   return tasks
     .filter((task) => isActive(task) && !task.completed && task.dueDate !== null)
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
+}
+
+export function filterPlannedTasks(
+  tasks: TaskItem[],
+  filter: PlannedFilterId,
+  todayIsoDate: string,
+): TaskItem[] {
+  const base = getPlannedTasks(tasks);
+  if (filter === 'all') return base;
+  if (filter === 'overdue') {
+    return base.filter((task) => task.dueDate! < todayIsoDate);
+  }
+  if (filter === 'today') {
+    return base.filter((task) => task.dueDate === todayIsoDate);
+  }
+  const tomorrowIso = computeNextDueDate(todayIsoDate, 'daily');
+  if (filter === 'tomorrow') {
+    return base.filter((task) => task.dueDate === tomorrowIso);
+  }
+  const weekEndIso = computeNextDueDate(todayIsoDate, 'weekly');
+  if (filter === 'this-week') {
+    return base.filter((task) => task.dueDate! >= todayIsoDate && task.dueDate! <= weekEndIso);
+  }
+  return base.filter((task) => task.dueDate! > weekEndIso);
+}
+
+export function extractHashtags(text: string): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  const regex = /(?:^|\s)(#[a-zA-Z0-9_\u00C0-\u017F-]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const raw = match[1].trim();
+    const key = raw.toLowerCase();
+    if (raw.length > 1 && !seen.has(key)) {
+      seen.add(key);
+      tags.push(raw);
+    }
+  }
+  return tags;
+}
+
+export function getAssignedTasks(
+  tasks: TaskItem[],
+  displayName?: string | null,
+): TaskItem[] {
+  const cleanName = (displayName ?? '').trim().replace(/^@+/, '').toLowerCase();
+  return tasks.filter((task) => {
+    if (!isActive(task) || task.completed) return false;
+    const assignee = (task.assignee ?? '').trim().replace(/^@+/, '').toLowerCase();
+    if (!cleanName) {
+      return assignee.length > 0;
+    }
+    return assignee === cleanName || task.title.toLowerCase().includes(`@${cleanName}`);
+  });
 }
 
 export function getAllOpenTasks(tasks: TaskItem[]): TaskItem[] {
@@ -108,17 +172,59 @@ export function filterTasksByQuery(tasks: TaskItem[], rawQuery: string): TaskIte
   return tasks.filter((task) => {
     if (task.title.toLowerCase().includes(q)) return true;
     if (task.note.toLowerCase().includes(q)) return true;
+    if (task.assignee && task.assignee.toLowerCase().includes(q.replace(/^@+/, ''))) return true;
     return task.steps.some((step) => step.title.toLowerCase().includes(q));
   });
 }
 
-export function sortTasksForView(tasks: TaskItem[], moveStarredToTop: boolean): TaskItem[] {
+function compareNullableStringsAsc(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a.localeCompare(b);
+}
+
+function comparePositions(a: TaskItem, b: TaskItem): number {
+  const hasA = typeof a.position === 'number';
+  const hasB = typeof b.position === 'number';
+  if (hasA && hasB) return a.position! - b.position!;
+  if (hasA) return -1;
+  if (hasB) return 1;
+  return 0;
+}
+
+export function sortTasksForView(
+  tasks: TaskItem[],
+  moveStarredToTop: boolean,
+  sortMode: TaskSortMode = 'default',
+): TaskItem[] {
+  if (sortMode === 'due-date') {
+    return [...tasks].sort((a, b) => {
+      const dateCmp = compareNullableStringsAsc(a.dueDate, b.dueDate);
+      if (dateCmp !== 0) return dateCmp;
+      if (a.starred !== b.starred) return a.starred ? -1 : 1;
+      return comparePositions(a, b);
+    });
+  }
+  if (sortMode === 'starred') {
+    return [...tasks].sort((a, b) => {
+      if (a.starred !== b.starred) return a.starred ? -1 : 1;
+      const dateCmp = compareNullableStringsAsc(a.dueDate, b.dueDate);
+      if (dateCmp !== 0) return dateCmp;
+      return comparePositions(a, b);
+    });
+  }
+  if (sortMode === 'title') {
+    return [...tasks].sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  const ordered = [...tasks].sort(comparePositions);
   if (!moveStarredToTop) {
-    return [...tasks];
+    return ordered;
   }
   const starred: TaskItem[] = [];
   const rest: TaskItem[] = [];
-  for (const task of tasks) {
+  for (const task of ordered) {
     if (task.starred && !task.completed) {
       starred.push(task);
     } else {

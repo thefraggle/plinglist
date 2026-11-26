@@ -24,6 +24,8 @@ const MERGEABLE_FIELDS: readonly MergeableTaskField[] = [
   'recurrence',
   'note',
   'steps',
+  'assignee',
+  'position',
   'deletedAt',
 ];
 
@@ -150,14 +152,25 @@ export function mergeListLww(local: TaskList, incoming: TaskList): TaskList {
     throw new Error(`Cannot merge lists with different IDs: ${local.id} vs ${incoming.id}`);
   }
   const winner = compareHlc(incoming.hlc, local.hlc) > 0 ? incoming : local;
-  return {
+  const result: TaskList = {
     id: local.id,
     title: winner.title,
+    folder: winner.folder ?? null,
     shared: winner.shared,
     inviteToken: winner.inviteToken,
+    readonlyInviteToken: winner.readonlyInviteToken ?? null,
     deletedAt: winner.deletedAt,
     hlc: winner.hlc,
     createdAt: local.createdAt <= incoming.createdAt ? local.createdAt : incoming.createdAt,
     updatedAt: local.updatedAt >= incoming.updatedAt ? local.updatedAt : incoming.updatedAt,
   };
+  const position = winner.position ?? local.position;
+  if (position !== undefined) {
+    result.position = position;
+  }
+  const accessRole = incoming.accessRole ?? local.accessRole;
+  if (accessRole !== undefined) {
+    result.accessRole = accessRole;
+  }
+  return result;
 }

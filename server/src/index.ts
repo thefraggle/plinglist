@@ -6,8 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { loadServerConfig, type ServerConfig } from './config.ts';
 import { SqliteSyncRepository } from './sqlite-repo.ts';
 import {
+  DeviceLimitReachedError,
   EntitlementRequiredError,
   InMemorySyncRepository,
+  SharedListLimitError,
   type EntitlementRecord,
   type SyncRepository,
   type SyncRequest,
@@ -154,6 +156,19 @@ function validateSyncRequest(raw: unknown): SyncRequest {
   }
   if (raw.sinceHlc !== undefined && raw.sinceHlc !== null && typeof raw.sinceHlc !== 'string') {
     throw new Error('sinceHlc must be a string or null');
+  }
+  if (raw.replaceOldestDevice !== undefined && typeof raw.replaceOldestDevice !== 'boolean') {
+    throw new Error('replaceOldestDevice must be a boolean');
+  }
+  if (raw.leaveListIds !== undefined) {
+    if (!Array.isArray(raw.leaveListIds) || raw.leaveListIds.length > 500) {
+      throw new Error('leaveListIds must be an array');
+    }
+    for (const id of raw.leaveListIds) {
+      if (typeof id !== 'string' || id.length > 256) {
+        throw new Error('leaveListIds elements must be strings');
+      }
+    }
   }
   if (raw.inviteTokens !== undefined) {
     if (!isPlainObject(raw.inviteTokens)) {
@@ -353,6 +368,22 @@ export function createServerApp(
           sendJson(res, 403, { error: err.code, message: err.message });
           return;
         }
+        if (err instanceof DeviceLimitReachedError) {
+          sendJson(res, 403, {
+            error: err.code,
+            message: err.message,
+            maxDevices: err.maxDevices,
+          });
+          return;
+        }
+        if (err instanceof SharedListLimitError) {
+          sendJson(res, 403, {
+            error: err.code,
+            message: err.message,
+            maxOwnedSharedLists: err.maxOwnedSharedLists,
+          });
+          return;
+        }
         sendJson(res, 400, {
           error: 'INVALID_SYNC_REQUEST',
           message: err instanceof Error ? err.message : 'Bad request',
@@ -427,7 +458,60 @@ export function createServerApp(
         sendJson(res, 404, { error: 'INVITE_NOT_FOUND' });
         return;
       }
-      sendJson(res, 200, { list });
+      sendJson(res, 200, { list, accessRole: list.accessRole ?? 'editor' });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/snapshots') {
+      if (!syncRateLimiter(clientIp)) {
+        sendJson(res, 429, { error: 'RATE_LIMIT_EXCEEDED' });
+        return;
+      }
+      const syncKey = requestUrl.searchParams.get('syncKey')?.trim() || '';
+      if (!syncKey) {
+        sendJson(res, 400, { error: 'MISSING_WORKSPACE_KEY' });
+        return;
+      }
+      if (config.cloudEnforceEntitlements && !repo.hasActiveEntitlement?.(syncKey)) {
+        sendJson(res, 403, { error: 'PRO_ENTITLEMENT_REQUIRED' });
+        return;
+      }
+      const snapshots = (await repo.listSnapshots?.(syncKey)) ?? [];
+      sendJson(res, 200, { snapshots });
+      return;
+    }
+
+    const snapshotRestoreMatch = pathname.match(/^\/api\/v1\/snapshots\/([^/]+)\/restore$/);
+    if (snapshotRestoreMatch && method === 'POST') {
+      if (!syncRateLimiter(clientIp)) {
+        sendJson(res, 429, { error: 'RATE_LIMIT_EXCEEDED' });
+        return;
+      }
+      try {
+        const snapshotId = decodeURIComponent(snapshotRestoreMatch[1]);
+        const body = await readJsonBody<unknown>(req);
+        if (!isPlainObject(body) || typeof body.syncKey !== 'string' || !body.syncKey.trim()) {
+          sendJson(res, 400, { error: 'MISSING_WORKSPACE_KEY' });
+          return;
+        }
+        const syncKey = body.syncKey.trim();
+        if (config.cloudEnforceEntitlements && !repo.hasActiveEntitlement?.(syncKey)) {
+          sendJson(res, 403, { error: 'PRO_ENTITLEMENT_REQUIRED' });
+          return;
+        }
+        const listId = typeof body.listId === 'string' && body.listId.trim() ? body.listId.trim() : undefined;
+        const result = await repo.restoreSnapshot?.(syncKey, snapshotId, listId);
+        if (!result) {
+          sendJson(res, 404, { error: 'SNAPSHOT_NOT_FOUND' });
+          return;
+        }
+        sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        sendJson(res, 404, {
+          error: 'SNAPSHOT_RESTORE_FAILED',
+          message: err instanceof Error ? err.message : 'Snapshot restore failed',
+        });
+      }
       return;
     }
 

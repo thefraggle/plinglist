@@ -799,3 +799,209 @@ test('server serves .well-known deep-link manifests and dynamic Open Graph meta 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('server enforces 2-device free cap with reinstall slot replacement, 1-shared-list quota, read-only guests, and 30-day snapshots', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const syncKey = 'pling-quota-test-111111-222222';
+    const h1 = formatHlc(11000, 0, 'dev-1');
+    const h2 = formatHlc(12000, 0, 'dev-2');
+
+    // Device 1 & Device 2 sync cleanly under Free tier
+    const dev1 = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-1',
+        syncKey,
+        listIds: ['list-1', 'list-2'],
+        clientLists: [
+          makeList('list-1', h1, {
+            title: 'Shared 1',
+            shared: true,
+            inviteToken: 'inv-write-1',
+            readonlyInviteToken: 'inv-ro-1',
+          }),
+          makeList('list-2', h1, { title: 'Private 2' }),
+        ],
+        clientTasks: [
+          makeTask('t-1', h1, { listId: 'list-1', title: 'Initial Item' }),
+          makeTask('t-2', h1, { listId: 'list-2', title: 'Keep Safe' }),
+        ],
+      }),
+    });
+    assert.equal(dev1.status, 200);
+    const dev1Body = (await dev1.json()) as { plan: string; deviceCount: number; maxDevices: number };
+    assert.equal(dev1Body.plan, 'free');
+    assert.equal(dev1Body.deviceCount, 1);
+    assert.equal(dev1Body.maxDevices, 2);
+
+    const dev2 = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-2',
+        syncKey,
+        listIds: [],
+        clientLists: [],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(dev2.status, 200);
+
+    // 3rd concurrent device without replaceOldestDevice is blocked with 403 DEVICE_LIMIT_REACHED
+    const dev3Blocked = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-3',
+        syncKey,
+        listIds: [],
+        clientLists: [],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(dev3Blocked.status, 403);
+    assert.equal(((await dev3Blocked.json()) as { error: string }).error, 'DEVICE_LIMIT_REACHED');
+
+    // Reinstalled device pairing with replaceOldestDevice: true succeeds and replaces oldest slot
+    const dev3Paired = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-3',
+        syncKey,
+        replaceOldestDevice: true,
+        listIds: [],
+        clientLists: [],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(dev3Paired.status, 200);
+
+    // Replaced dev-1 is now blocked with DEVICE_LIMIT_REACHED
+    const dev1AfterReplace = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-1',
+        syncKey,
+        listIds: [],
+        clientLists: [],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(dev1AfterReplace.status, 403);
+
+    // Free user cannot share a 2nd own list on server
+    const secondShareBlocked = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-3',
+        syncKey,
+        listIds: ['list-2'],
+        clientLists: [
+          makeList('list-2', h2, {
+            title: 'Private 2',
+            shared: true,
+            inviteToken: 'inv-write-2',
+          }),
+        ],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(secondShareBlocked.status, 403);
+    assert.equal(
+      ((await secondShareBlocked.json()) as { error: string }).error,
+      'SHARED_LIST_LIMIT_REACHED',
+    );
+
+    // Read-only guest can read via inv-ro-1, never receives inv-write-1, and mutations are ignored
+    const roJoinRes = await fetch(`${baseUrl}/api/v1/invites/inv-ro-1/join`, { method: 'POST' });
+    assert.equal(roJoinRes.status, 200);
+    const roJoinBody = (await roJoinRes.json()) as { list: TaskList; accessRole: string };
+    assert.equal(roJoinBody.accessRole, 'viewer');
+    assert.equal(roJoinBody.list.inviteToken, 'inv-ro-1');
+
+    const roSyncRes = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'guest-ro',
+        syncKey: 'pling-guest-ro-key',
+        inviteTokens: { 'list-1': 'inv-ro-1' },
+        listIds: ['list-1'],
+        clientLists: [],
+        clientTasks: [
+          makeTask('t-1', formatHlc(99999, 0, 'guest-ro'), {
+            listId: 'list-1',
+            title: 'Tampered',
+          }),
+        ],
+      }),
+    });
+    assert.equal(roSyncRes.status, 200);
+    const roSyncBody = (await roSyncRes.json()) as { acceptedCount: number; serverTasks: TaskItem[] };
+    assert.equal(roSyncBody.acceptedCount, 0);
+    assert.equal(roSyncBody.serverTasks.find((t) => t.id === 't-1')?.title, 'Initial Item');
+
+    // Snapshots recorded and restore recovers deleted list/tasks
+    const snapsRes = await fetch(`${baseUrl}/api/v1/snapshots?syncKey=${encodeURIComponent(syncKey)}`);
+    assert.equal(snapsRes.status, 200);
+    const snapsBody = (await snapsRes.json()) as { snapshots: Array<{ id: string }> };
+    assert.equal(snapsBody.snapshots.length, 1);
+    const snapId = snapsBody.snapshots[0].id;
+
+    // Upgrade to Pro unlocks >2 devices and snapshot restore
+    repo.upsertEntitlement({
+      userId: syncKey,
+      plan: 'pro_lifetime',
+      expiresAtMs: null,
+      source: 'stripe',
+    });
+    const dev1Pro = await fetch(`${baseUrl}/api/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: 'dev-1',
+        syncKey,
+        listIds: ['list-2'],
+        clientLists: [makeList('list-2', h2, { title: '', deletedAt: new Date().toISOString() })],
+        clientTasks: [],
+      }),
+    });
+    assert.equal(dev1Pro.status, 200);
+
+    const restoreRes = await fetch(`${baseUrl}/api/v1/snapshots/${encodeURIComponent(snapId)}/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ syncKey, listId: 'list-2' }),
+    });
+    assert.equal(restoreRes.status, 200);
+    const restoreBody = (await restoreRes.json()) as { restoredLists: number; restoredTasks: number };
+    assert.equal(restoreBody.restoredLists, 1);
+    assert.equal(restoreBody.restoredTasks, 1);
+
+    const pullAfterRestore = await repo.applyAndPullDeltas({
+      userId: 'dev-1',
+      syncKey,
+      listIds: [],
+      clientLists: [],
+      clientTasks: [],
+    });
+    const restoredList = pullAfterRestore.serverLists?.find((l) => l.id === 'list-2');
+    assert.equal(restoredList?.title, 'Private 2');
+    assert.equal(restoredList?.deletedAt, null);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});

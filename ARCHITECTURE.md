@@ -8,7 +8,7 @@ Plinglist is a fast, local-first, bilingual (EN/DE) to-do list application desig
 
 - **Instant Local Execution:** Every read and mutation (`addTask`, `toggleTaskCompleted`, `addTaskStep`, `updateTask`) executes synchronously against local memory and `localStorage` (`< 16 ms` UI latency, `< 200 ms` cold start). Network synchronization runs strictly asynchronously in the background.
 - **Offline-First Resilience:** Tasks can be created, checked off, starred, and edited without network connectivity. All mutations carry Hybrid Logical Clock (HLC) timestamps for deterministic merging upon reconnect.
-- **Strict YAGNI Scope:** Six views (*My Day* with automatic midnight reset + smart suggestions, *Starred*, *Planned* with due dates & recurrences, *All*, *Tasks*, and *Custom / Shared Lists*) plus debounced live search (`filterTasksByQuery`) and URL state (`?view=&list=&q=&legal=`). No Kanban boards, no AI bloat.
+- **Strict YAGNI Scope:** Eight focused views (*My Day* with midnight reset + smart suggestions, *Starred*, *Planned* with time-window filters, overdue badges & recurrences, *All*, *Tasks*, *Assigned to me*, *Custom / Shared Lists* with 1-level folders, sorting, duplication & `#hashtags`, and *7-Day Trash*) plus debounced live search (`filterTasksByQuery`) and URL state (`?view=&list=&q=&legal=`). No Kanban boards, no AI bloat.
 - **Zero External Runtime Dependencies:** Built directly on Node.js 22 LTS (`node:http`, `node:sqlite`, `node:module.stripTypeScriptTypes`, `node:test`) and standard browser primitives (`<dialog closedby="any">`, `details::details-content`, `HTMLInputElement.showPicker()`, Web Audio API, Service Worker, `color-scheme: light dark`, `light-dark()`).
 - **Strict CSP Compatibility:** No inline `<script>` tags, no inline `style=""` attributes, and no external font/CDN dependencies.
 
@@ -64,10 +64,10 @@ Plinglist uses **Hybrid Logical Clocks** (`packages/core/src/hlc.ts`) formatted 
 ```
 
 - **Monotonicity:** `HlcClock.now(wallMs)` and `HlcClock.receive(remoteHlc, wallMs)` advance monotonically even when a device's system clock drifts backwards.
-- **Field-Level LWW (`mergeTaskLww`):** Each task stores `fieldHlcs` across 12 mergeable fields (`listId`, `title`, `completed`, `completedAt`, `starred`, `myDayDate`, `dueDate`, `reminderAt`, `recurrence`, `note`, `steps`, `deletedAt`). If Device A checks off a task offline while Device B updates its note offline, both changes survive cleanly on merge.
-- **List-Level LWW (`mergeListLww`):** Merges `title`, `shared`, `inviteToken`, and soft-delete `deletedAt` by comparing record HLCs while retaining earliest `createdAt` and latest `updatedAt`.
+- **Field-Level LWW (`mergeTaskLww`):** Each task stores `fieldHlcs` across 14 mergeable fields (`listId`, `title`, `completed`, `completedAt`, `starred`, `myDayDate`, `dueDate`, `reminderAt`, `recurrence`, `note`, `steps`, `assignee`, `position`, `deletedAt`). If Device A checks off a task offline while Device B updates its note offline, both changes survive cleanly on merge.
+- **List-Level LWW (`mergeListLww`):** Merges `title`, `folder`, `position`, `shared`, `inviteToken`, `readonlyInviteToken`, and soft-delete `deletedAt` by comparing record HLCs while retaining earliest `createdAt` and latest `updatedAt`.
 - **Delta-Push Optimization (`lastPushedHlc`):** After initial workspace sync, `PlinglistStore.syncWithServer()` pushes only lists and tasks whose HLC exceeds `lastPushedHlc`, turning idle 15-second background polls (paused while the tab is hidden) into empty-body delta pulls.
-- **GDPR Tombstone Content Scrubbing:** Deletions (`deleteTask`, `deleteList`) set `deletedAt` for reliable offline peer propagation while immediately clearing all personal content fields (`title`, `note`, `steps`, `dueDate`, `reminderAt`, `myDayDate`, `starred`) and updating their `fieldHlcs`. Users can also erase all local and server-stored workspace data via `DELETE /api/v1/sync` or switch to local-only mode (`syncEnabled = false`).
+- **7-Day Trash, Snapshots & GDPR Erasure:** Soft-deletions (`deleteTask`, `deleteList`) keep contents recoverable for 7 days (`FREE_TRASH_RETENTION_DAYS`) before `purgeExpiredTrash()` or `emptyTrash()` clears personal fields (`title`, `note`, `steps`, `dueDate`, `reminderAt`, `myDayDate`, `starred`, `assignee`). `SqliteSyncRepository` also stores daily gzipped `workspace_snapshots` (30-day retention), `workspace_devices` (2-device free cap with reinstall slot replacement), and `workspace_memberships`. Users can erase all local and server-stored workspace data anytime via `DELETE /api/v1/sync` or switch to local-only mode (`syncEnabled = false`).
 
 ---
 
@@ -81,8 +81,9 @@ PRAGMA synchronous = NORMAL;
 PRAGMA busy_timeout = 5000;
 ```
 
-- **`lists` table:** `(id TEXT PRIMARY KEY, owner_sync_key TEXT, invite_token TEXT, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with indexes `idx_lists_invite` and `idx_lists_owner`.
+- **`lists` table:** `(id TEXT PRIMARY KEY, owner_sync_key TEXT, invite_token TEXT, readonly_invite_token TEXT, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with indexes `idx_lists_invite`, `idx_lists_readonly_invite`, and `idx_lists_owner`.
 - **`tasks` table:** `(id TEXT PRIMARY KEY, list_id TEXT NOT NULL, hlc TEXT NOT NULL, payload_json TEXT NOT NULL)` with index `idx_tasks_list_hlc`.
+- **`workspace_devices`, `workspace_memberships` & `workspace_snapshots` tables:** Enforce 2-device free slots (with reinstall replacement), restore joined shared lists on `?pair=`, and store daily gzipped 30-day workspace snapshots.
 - **`entitlements` table:** `(user_key TEXT PRIMARY KEY, plan TEXT NOT NULL, expires_at_ms INTEGER, source TEXT NOT NULL, updated_at TEXT NOT NULL)` storing normalized Stripe/RevenueCat Pro states.
 - **Atomic Sync Transactions:** `applyAndPullDeltas` wraps incoming list and task merges in `BEGIN IMMEDIATE ... COMMIT` (with `ROLLBACK` on error) so concurrent sync requests remain consistent.
 

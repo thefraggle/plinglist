@@ -13,6 +13,11 @@ export interface ImportResult {
 
 interface WunderlistRaw {
   data?: {
+    folders?: Array<{
+      id: string | number;
+      title: string;
+      list_ids?: Array<string | number>;
+    }>;
     lists?: Array<{ id: string | number; title: string; created_at?: string }>;
     tasks?: Array<{
       id: string | number;
@@ -93,9 +98,19 @@ export function importWunderlistJson(rawJson: string, nowHlc: HlcTimestamp): Imp
   const data = parsed.data ?? {};
   const nowIso = new Date().toISOString();
 
+  const folderByListId = new Map<string, string>();
+  for (const folder of data.folders ?? []) {
+    const folderTitle = folder.title?.trim();
+    if (!folderTitle) continue;
+    for (const lid of folder.list_ids ?? []) {
+      folderByListId.set(String(lid), folderTitle);
+    }
+  }
+
   const lists: TaskList[] = (data.lists ?? []).map((list) => ({
     id: `wl-list-${String(list.id)}`,
     title: list.title,
+    folder: folderByListId.get(String(list.id)) ?? null,
     shared: false,
     inviteToken: null,
     createdAt: list.created_at ?? nowIso,

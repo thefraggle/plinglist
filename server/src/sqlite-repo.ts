@@ -1,22 +1,33 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  FREE_MAX_DEVICES,
+  FREE_MAX_OWNED_SHARED_LISTS,
   HlcClock,
   compareHlc,
   mergeListLww,
   mergeTaskLww,
   type HlcTimestamp,
+  type ListAccessRole,
   type TaskItem,
   type TaskList,
+  type WorkspaceSnapshotMeta,
 } from '../../packages/core/src/index.ts';
 import {
+  DeviceLimitReachedError,
   EntitlementRequiredError,
+  SharedListLimitError,
   advanceWatermarkIfNeeded,
-  isAuthorizedCaller,
+  buildSnapshotPayloadBuffer,
+  getCallerAccessRole,
+  getSnapshotCutoffDay,
   isEntitlementActive,
   isGuestShareRequest,
+  parseSnapshotPayloadBuffer,
   pickHigherHlc,
+  sanitizeListForRole,
   type CloudEntitlementGuard,
   type EntitlementPlan,
   type EntitlementRecord,
@@ -30,6 +41,7 @@ interface StoredListRow {
   id: string;
   owner_sync_key: string | null;
   invite_token: string | null;
+  readonly_invite_token?: string | null;
   payload_json: string;
 }
 
@@ -53,6 +65,7 @@ export class SqliteSyncRepository implements SyncRepository {
         id TEXT PRIMARY KEY,
         owner_sync_key TEXT,
         invite_token TEXT,
+        readonly_invite_token TEXT,
         hlc TEXT NOT NULL,
         payload_json TEXT NOT NULL
       );
@@ -73,6 +86,33 @@ export class SqliteSyncRepository implements SyncRepository {
         source TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS workspace_devices (
+        sync_key TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        PRIMARY KEY (sync_key, device_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_memberships (
+        sync_key TEXT NOT NULL,
+        list_id TEXT NOT NULL,
+        invite_token TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (sync_key, list_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_snapshots (
+        id TEXT PRIMARY KEY,
+        owner_sync_key TEXT NOT NULL,
+        snapshot_day TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        list_count INTEGER NOT NULL,
+        task_count INTEGER NOT NULL,
+        payload_gzip BLOB NOT NULL,
+        UNIQUE(owner_sync_key, snapshot_day)
+      );
     `);
 
     try {
@@ -80,35 +120,181 @@ export class SqliteSyncRepository implements SyncRepository {
     } catch {
       // Column already exists on newly created or previously migrated databases.
     }
+    try {
+      this.db.exec('ALTER TABLE lists ADD COLUMN readonly_invite_token TEXT');
+    } catch {
+      // Column already exists on newly created or previously migrated databases.
+    }
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_lists_owner ON lists(owner_sync_key)');
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_lists_readonly_invite ON lists(readonly_invite_token)',
+    );
   }
 
-  private isListRowAuthorized(
+  private getListRowRole(
     row: StoredListRow | undefined,
     callerKey: string,
     callerUserId: string,
     listId: string,
     inviteTokens?: Record<string, string>,
     incomingInviteToken?: string | null,
-  ): boolean {
+  ): ListAccessRole | null {
     if (!row) {
-      return true;
+      return 'owner';
     }
     const existing = JSON.parse(row.payload_json) as TaskList;
-    return isAuthorizedCaller({
+    return getCallerAccessRole({
       ownerKey: row.owner_sync_key,
       callerKey,
       callerUserId,
       shared: existing.shared,
       storedInviteToken: existing.inviteToken,
+      storedReadonlyInviteToken: existing.readonlyInviteToken ?? row.readonly_invite_token ?? null,
       listId,
       inviteTokens,
       incomingInviteToken,
     });
   }
 
+  private getEffectivePlan(callerKey: string, nowMs = Date.now()): EntitlementPlan {
+    const record = this.getEntitlement(callerKey);
+    return isEntitlementActive(record, nowMs) ? record!.plan : 'free';
+  }
+
+  private registerDeviceInTransaction(
+    callerKey: string,
+    callerUserId: string,
+    isPro: boolean,
+    replaceOldestDevice: boolean,
+    nowIso: string,
+  ): number {
+    const existing = this.db
+      .prepare('SELECT device_id FROM workspace_devices WHERE sync_key = ? AND device_id = ?')
+      .get(callerKey, callerUserId) as { device_id: string } | undefined;
+    if (existing) {
+      this.db
+        .prepare(
+          'UPDATE workspace_devices SET last_seen_at = ? WHERE sync_key = ? AND device_id = ?',
+        )
+        .run(nowIso, callerKey, callerUserId);
+      const countRow = this.db
+        .prepare('SELECT COUNT(*) AS cnt FROM workspace_devices WHERE sync_key = ?')
+        .get(callerKey) as { cnt: number };
+      return countRow.cnt;
+    }
+
+    const devices = this.db
+      .prepare(
+        'SELECT device_id, last_seen_at FROM workspace_devices WHERE sync_key = ? ORDER BY last_seen_at ASC',
+      )
+      .all(callerKey) as Array<{ device_id: string; last_seen_at: string }>;
+
+    if (!isPro && devices.length >= FREE_MAX_DEVICES) {
+      if (replaceOldestDevice && devices.length > 0) {
+        this.db
+          .prepare('DELETE FROM workspace_devices WHERE sync_key = ? AND device_id = ?')
+          .run(callerKey, devices[0].device_id);
+      } else {
+        throw new DeviceLimitReachedError(callerKey);
+      }
+    }
+
+    this.db
+      .prepare(
+        'INSERT INTO workspace_devices (sync_key, device_id, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(callerKey, callerUserId, nowIso, nowIso);
+    const countRow = this.db
+      .prepare('SELECT COUNT(*) AS cnt FROM workspace_devices WHERE sync_key = ?')
+      .get(callerKey) as { cnt: number };
+    return countRow.cnt;
+  }
+
+  private countActiveOwnedSharedLists(
+    callerKey: string,
+    callerUserId: string,
+    excludeListId: string,
+  ): number {
+    const rows = this.db
+      .prepare(
+        "SELECT id, payload_json FROM lists WHERE (owner_sync_key = ? OR (? != '' AND owner_sync_key = ?)) AND id != ?",
+      )
+      .all(callerKey, callerUserId, callerUserId, excludeListId) as Array<{
+      id: string;
+      payload_json: string;
+    }>;
+    let count = 0;
+    for (const row of rows) {
+      const list = JSON.parse(row.payload_json) as TaskList;
+      if (list.shared && list.deletedAt === null) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  private recordDailySnapshotInTransaction(callerKey: string, nowMs: number): void {
+    const listRows = this.db
+      .prepare('SELECT id, payload_json FROM lists WHERE owner_sync_key = ?')
+      .all(callerKey) as Array<{ id: string; payload_json: string }>;
+    if (listRows.length === 0) return;
+
+    const ownedLists = listRows.map((row) => JSON.parse(row.payload_json) as TaskList);
+    const ownedIds = ownedLists.map((l) => l.id);
+    const placeholders = ownedIds.map(() => '?').join(', ');
+    const taskRows = this.db
+      .prepare(`SELECT payload_json FROM tasks WHERE list_id IN (${placeholders})`)
+      .all(...ownedIds) as Array<{ payload_json: string }>;
+    const ownedTasks = taskRows.map((row) => JSON.parse(row.payload_json) as TaskItem);
+
+    const nowIso = new Date(nowMs).toISOString();
+    const snapshotDay = nowIso.slice(0, 10);
+    const cutoffDay = getSnapshotCutoffDay(nowMs);
+    const payloadGzip = buildSnapshotPayloadBuffer(ownedLists, ownedTasks);
+    const listCount = ownedLists.filter((l) => l.deletedAt === null).length;
+    const taskCount = ownedTasks.filter((t) => t.deletedAt === null).length;
+
+    const existingSnap = this.db
+      .prepare(
+        'SELECT list_count, task_count FROM workspace_snapshots WHERE owner_sync_key = ? AND snapshot_day = ?',
+      )
+      .get(callerKey, snapshotDay) as { list_count: number; task_count: number } | undefined;
+
+    if (
+      !existingSnap ||
+      (listCount >= existingSnap.list_count && taskCount >= existingSnap.task_count)
+    ) {
+      this.db
+        .prepare(
+          `
+          INSERT INTO workspace_snapshots (id, owner_sync_key, snapshot_day, created_at, list_count, task_count, payload_gzip)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(owner_sync_key, snapshot_day) DO UPDATE SET
+            created_at = excluded.created_at,
+            list_count = excluded.list_count,
+            task_count = excluded.task_count,
+            payload_gzip = excluded.payload_gzip
+          `,
+        )
+        .run(
+          `snap-${snapshotDay}-${crypto.randomUUID().slice(0, 8)}`,
+          callerKey,
+          snapshotDay,
+          nowIso,
+          listCount,
+          taskCount,
+          payloadGzip,
+        );
+    }
+
+    this.db
+      .prepare('DELETE FROM workspace_snapshots WHERE owner_sync_key = ? AND snapshot_day < ?')
+      .run(callerKey, cutoffDay);
+  }
+
   async applyAndPullDeltas(request: SyncRequest): Promise<SyncResponse> {
     const callerUserId = request.userId.trim();
+    const hasSyncKey = Boolean(request.syncKey?.trim());
     const callerKey = request.syncKey?.trim() || callerUserId;
     if (this.guard) {
       const allowed = await this.guard(callerKey);
@@ -117,24 +303,32 @@ export class SqliteSyncRepository implements SyncRepository {
       }
     }
 
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const plan = this.getEffectivePlan(callerKey, nowMs);
+    const isPro = plan !== 'free';
+
     const requestedListIds = Array.from(
       new Set(request.listIds.filter((id) => id.trim().length > 0)),
     );
     const requestedSet = new Set(requestedListIds);
     let acceptedCount = 0;
+    let deviceCount: number | undefined;
+    let ownedChanged = false;
 
     const selectListStmt = this.db.prepare(
-      'SELECT id, owner_sync_key, invite_token, payload_json FROM lists WHERE id = ?',
+      'SELECT id, owner_sync_key, invite_token, readonly_invite_token, payload_json FROM lists WHERE id = ?',
     );
     const upsertListStmt = this.db.prepare(`
-      INSERT INTO lists (id, owner_sync_key, invite_token, hlc, payload_json)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO lists (id, owner_sync_key, invite_token, readonly_invite_token, hlc, payload_json)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         owner_sync_key = CASE
           WHEN lists.owner_sync_key IS NULL OR lists.owner_sync_key = ? THEN excluded.owner_sync_key
           ELSE lists.owner_sync_key
         END,
         invite_token = excluded.invite_token,
+        readonly_invite_token = excluded.readonly_invite_token,
         hlc = excluded.hlc,
         payload_json = excluded.payload_json
     `);
@@ -151,34 +345,65 @@ export class SqliteSyncRepository implements SyncRepository {
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      if (hasSyncKey) {
+        deviceCount = this.registerDeviceInTransaction(
+          callerKey,
+          callerUserId,
+          isPro,
+          Boolean(request.replaceOldestDevice),
+          nowIso,
+        );
+        if (request.leaveListIds?.length) {
+          const deleteMembershipStmt = this.db.prepare(
+            'DELETE FROM workspace_memberships WHERE sync_key = ? AND list_id = ?',
+          );
+          for (const leaveId of request.leaveListIds) {
+            deleteMembershipStmt.run(callerKey, leaveId);
+          }
+        }
+      }
+
       const maxListHlcRow = this.db.prepare('SELECT MAX(hlc) AS max_hlc FROM lists').get() as
         | { max_hlc: string | null }
         | undefined;
       const maxTaskHlcRow = this.db.prepare('SELECT MAX(hlc) AS max_hlc FROM tasks').get() as
         | { max_hlc: string | null }
         | undefined;
-      let maxStoredHlc = pickHigherHlc(
+      const preRequestMaxHlc = pickHigherHlc(
         maxListHlcRow?.max_hlc ?? null,
         maxTaskHlcRow?.max_hlc ?? null,
       );
+      let maxWatermarkHlc = preRequestMaxHlc;
 
       for (const incomingList of request.clientLists ?? []) {
         if (!requestedSet.has(incomingList.id)) continue;
         const row = selectListStmt.get(incomingList.id) as StoredListRow | undefined;
-        if (
-          !this.isListRowAuthorized(
-            row,
+        const role = this.getListRowRole(
+          row,
+          callerKey,
+          callerUserId,
+          incomingList.id,
+          request.inviteTokens,
+          incomingList.inviteToken,
+        );
+        if (!role || role === 'viewer') {
+          continue;
+        }
+        if (role === 'owner' && incomingList.shared && incomingList.deletedAt === null && !isPro) {
+          const activeOwnedShared = this.countActiveOwnedSharedLists(
             callerKey,
             callerUserId,
             incomingList.id,
-            request.inviteTokens,
-            incomingList.inviteToken,
-          )
-        ) {
-          continue;
+          );
+          if (activeOwnedShared >= FREE_MAX_OWNED_SHARED_LISTS) {
+            throw new SharedListLimitError(callerKey);
+          }
         }
+
         const existingList = row ? (JSON.parse(row.payload_json) as TaskList) : null;
-        const merged = existingList ? mergeListLww(existingList, incomingList) : { ...incomingList };
+        const cleanIncoming: TaskList = { ...incomingList };
+        delete cleanIncoming.accessRole;
+        const merged = existingList ? mergeListLww(existingList, cleanIncoming) : cleanIncoming;
         const isLegacyOwner = Boolean(callerUserId && row?.owner_sync_key === callerUserId);
         const ownerKey =
           !row?.owner_sync_key || isLegacyOwner ? callerKey : row.owner_sync_key;
@@ -186,15 +411,19 @@ export class SqliteSyncRepository implements SyncRepository {
         const mergedJsonBeforeWatermark = JSON.stringify(merged);
         const changed =
           !row || ownerUpgraded || mergedJsonBeforeWatermark !== row.payload_json;
-        if (changed) {
-          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
+        if (changed && preRequestMaxHlc && compareHlc(merged.hlc, preRequestMaxHlc) <= 0) {
+          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxWatermarkHlc, this.serverClock);
         }
-        maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
+        if (changed && ownerKey === callerKey) {
+          ownedChanged = true;
+        }
+        maxWatermarkHlc = pickHigherHlc(maxWatermarkHlc, merged.hlc);
 
         upsertListStmt.run(
           merged.id,
           ownerKey,
           merged.inviteToken,
+          merged.readonlyInviteToken ?? null,
           merged.hlc,
           JSON.stringify(merged),
           callerUserId,
@@ -205,15 +434,14 @@ export class SqliteSyncRepository implements SyncRepository {
       for (const incomingTask of request.clientTasks) {
         if (!requestedSet.has(incomingTask.listId)) continue;
         const listRow = selectListStmt.get(incomingTask.listId) as StoredListRow | undefined;
-        if (
-          !this.isListRowAuthorized(
-            listRow,
-            callerKey,
-            callerUserId,
-            incomingTask.listId,
-            request.inviteTokens,
-          )
-        ) {
+        const role = this.getListRowRole(
+          listRow,
+          callerKey,
+          callerUserId,
+          incomingTask.listId,
+          request.inviteTokens,
+        );
+        if (!role || role === 'viewer') {
           continue;
         }
 
@@ -223,26 +451,29 @@ export class SqliteSyncRepository implements SyncRepository {
           const existingListRow = selectListStmt.get(existingTask.listId) as
             | StoredListRow
             | undefined;
-          if (
-            !existingListRow ||
-            !this.isListRowAuthorized(
-              existingListRow,
-              callerKey,
-              callerUserId,
-              existingTask.listId,
-              request.inviteTokens,
-            )
-          ) {
+          const existingRole = existingListRow
+            ? this.getListRowRole(
+                existingListRow,
+                callerKey,
+                callerUserId,
+                existingTask.listId,
+                request.inviteTokens,
+              )
+            : null;
+          if (!existingRole || existingRole === 'viewer') {
             continue;
           }
         }
         const merged = existingTask ? mergeTaskLww(existingTask, incomingTask) : { ...incomingTask };
         const mergedJsonBeforeWatermark = JSON.stringify(merged);
         const changed = !taskRow || mergedJsonBeforeWatermark !== taskRow.payload_json;
-        if (changed) {
-          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxStoredHlc, this.serverClock);
+        if (changed && preRequestMaxHlc && compareHlc(merged.hlc, preRequestMaxHlc) <= 0) {
+          merged.hlc = advanceWatermarkIfNeeded(merged.hlc, maxWatermarkHlc, this.serverClock);
         }
-        maxStoredHlc = pickHigherHlc(maxStoredHlc, merged.hlc);
+        if (changed && listRow?.owner_sync_key === callerKey) {
+          ownedChanged = true;
+        }
+        maxWatermarkHlc = pickHigherHlc(maxWatermarkHlc, merged.hlc);
 
         upsertTaskStmt.run(
           merged.id,
@@ -253,20 +484,75 @@ export class SqliteSyncRepository implements SyncRepository {
         acceptedCount += 1;
       }
 
+      if (hasSyncKey && ownedChanged) {
+        this.recordDailySnapshotInTransaction(callerKey, nowMs);
+      }
+
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
     }
 
-    const authorizedListIds = new Set<string>();
+    const pullRoleByListId = new Map<string, ListAccessRole>();
     const revokedListIds: string[] = [];
+    const upsertMembershipStmt = this.db.prepare(`
+      INSERT INTO workspace_memberships (sync_key, list_id, invite_token, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(sync_key, list_id) DO UPDATE SET
+        invite_token = excluded.invite_token,
+        updated_at = excluded.updated_at
+    `);
+    const deleteMembershipStmt = this.db.prepare(
+      'DELETE FROM workspace_memberships WHERE sync_key = ? AND list_id = ?',
+    );
+
     for (const listId of requestedListIds) {
       const row = selectListStmt.get(listId) as StoredListRow | undefined;
-      if (this.isListRowAuthorized(row, callerKey, callerUserId, listId, request.inviteTokens)) {
-        authorizedListIds.add(listId);
+      const role = this.getListRowRole(row, callerKey, callerUserId, listId, request.inviteTokens);
+      if (role) {
+        pullRoleByListId.set(listId, role);
+        if (hasSyncKey && (role === 'editor' || role === 'viewer')) {
+          const token = request.inviteTokens?.[listId];
+          if (token) {
+            upsertMembershipStmt.run(callerKey, listId, token, nowIso);
+          }
+        }
       } else if (row && isGuestShareRequest(listId, request)) {
         revokedListIds.push(listId);
+        if (hasSyncKey) {
+          deleteMembershipStmt.run(callerKey, listId);
+        }
+      }
+    }
+
+    if (hasSyncKey) {
+      const membershipRows = this.db
+        .prepare('SELECT list_id, invite_token FROM workspace_memberships WHERE sync_key = ?')
+        .all(callerKey) as Array<{ list_id: string; invite_token: string }>;
+      for (const mRow of membershipRows) {
+        const listRow = selectListStmt.get(mRow.list_id) as StoredListRow | undefined;
+        if (!listRow) {
+          deleteMembershipStmt.run(callerKey, mRow.list_id);
+          continue;
+        }
+        const existingList = JSON.parse(listRow.payload_json) as TaskList;
+        if (!existingList.shared || existingList.deletedAt !== null) {
+          deleteMembershipStmt.run(callerKey, mRow.list_id);
+          continue;
+        }
+        const role = this.getListRowRole(
+          listRow,
+          callerKey,
+          callerUserId,
+          mRow.list_id,
+          { [mRow.list_id]: mRow.invite_token },
+        );
+        if (role) {
+          pullRoleByListId.set(mRow.list_id, role);
+        } else {
+          deleteMembershipStmt.run(callerKey, mRow.list_id);
+        }
       }
     }
 
@@ -274,10 +560,10 @@ export class SqliteSyncRepository implements SyncRepository {
       .prepare('SELECT id FROM lists WHERE owner_sync_key = ? OR owner_sync_key = ?')
       .all(callerKey, callerUserId) as Array<{ id: string }>;
     for (const owned of ownedRows) {
-      authorizedListIds.add(owned.id);
+      pullRoleByListId.set(owned.id, 'owner');
     }
 
-    const pullIds = Array.from(authorizedListIds);
+    const pullIds = Array.from(pullRoleByListId.keys());
     if (pullIds.length === 0) {
       return {
         acceptedCount,
@@ -285,6 +571,10 @@ export class SqliteSyncRepository implements SyncRepository {
         serverTasks: [],
         revokedListIds,
         cursorHlc: request.sinceHlc ?? null,
+        plan,
+        ...(deviceCount !== undefined ? { deviceCount } : {}),
+        maxDevices: isPro ? null : FREE_MAX_DEVICES,
+        maxOwnedSharedLists: isPro ? null : FREE_MAX_OWNED_SHARED_LISTS,
       };
     }
 
@@ -302,8 +592,9 @@ export class SqliteSyncRepository implements SyncRepository {
 
     for (const row of listRows) {
       const list = JSON.parse(row.payload_json) as TaskList;
+      const role = pullRoleByListId.get(list.id) ?? 'owner';
       if (!request.sinceHlc || compareHlc(list.hlc, request.sinceHlc) > 0) {
-        serverLists.push(list);
+        serverLists.push(sanitizeListForRole(list, role));
       }
       if (!maxHlc || compareHlc(list.hlc, maxHlc) > 0) {
         maxHlc = list.hlc;
@@ -329,20 +620,153 @@ export class SqliteSyncRepository implements SyncRepository {
       serverTasks,
       revokedListIds,
       cursorHlc: maxHlc,
+      plan,
+      ...(deviceCount !== undefined ? { deviceCount } : {}),
+      maxDevices: isPro ? null : FREE_MAX_DEVICES,
+      maxOwnedSharedLists: isPro ? null : FREE_MAX_OWNED_SHARED_LISTS,
     };
   }
 
   async resolveInviteToken(inviteToken: string): Promise<TaskList | null> {
-    if (!inviteToken.trim()) return null;
+    const clean = inviteToken.trim();
+    if (!clean) return null;
     const row = this.db
-      .prepare('SELECT payload_json FROM lists WHERE invite_token = ? LIMIT 1')
-      .get(inviteToken) as { payload_json: string } | undefined;
+      .prepare(
+        'SELECT payload_json FROM lists WHERE invite_token = ? OR readonly_invite_token = ? LIMIT 1',
+      )
+      .get(clean, clean) as { payload_json: string } | undefined;
     if (!row) return null;
     const list = JSON.parse(row.payload_json) as TaskList;
     if (!list.shared || list.deletedAt !== null) {
       return null;
     }
-    return list;
+    const role: ListAccessRole = list.readonlyInviteToken === clean ? 'viewer' : 'editor';
+    return sanitizeListForRole(list, role);
+  }
+
+  async listSnapshots(syncKey: string): Promise<WorkspaceSnapshotMeta[]> {
+    const cleanKey = syncKey.trim();
+    if (!cleanKey) return [];
+    const rows = this.db
+      .prepare(
+        'SELECT id, snapshot_day, created_at, list_count, task_count FROM workspace_snapshots WHERE owner_sync_key = ? ORDER BY snapshot_day DESC',
+      )
+      .all(cleanKey) as Array<{
+      id: string;
+      snapshot_day: string;
+      created_at: string;
+      list_count: number;
+      task_count: number;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      snapshotDay: row.snapshot_day,
+      createdAt: row.created_at,
+      listCount: row.list_count,
+      taskCount: row.task_count,
+    }));
+  }
+
+  async restoreSnapshot(
+    syncKey: string,
+    snapshotId: string,
+    listId?: string,
+  ): Promise<{ restoredLists: number; restoredTasks: number; cursorHlc: HlcTimestamp | null }> {
+    const cleanKey = syncKey.trim();
+    const row = this.db
+      .prepare('SELECT payload_gzip FROM workspace_snapshots WHERE id = ? AND owner_sync_key = ?')
+      .get(snapshotId, cleanKey) as { payload_gzip: Uint8Array } | undefined;
+    if (!row) {
+      throw new Error(`Snapshot not found: ${snapshotId}`);
+    }
+
+    const { lists, tasks } = parseSnapshotPayloadBuffer(row.payload_gzip);
+    const targetLists = listId ? lists.filter((l) => l.id === listId) : lists;
+    const targetListIds = new Set(targetLists.map((l) => l.id));
+    const targetTasks = listId
+      ? tasks.filter((t) => t.listId === listId)
+      : tasks.filter((t) => targetListIds.has(t.listId));
+
+    const nowIso = new Date().toISOString();
+    let maxHlc: HlcTimestamp | null = null;
+    const upsertListStmt = this.db.prepare(`
+      INSERT INTO lists (id, owner_sync_key, invite_token, readonly_invite_token, hlc, payload_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_sync_key = excluded.owner_sync_key,
+        invite_token = excluded.invite_token,
+        readonly_invite_token = excluded.readonly_invite_token,
+        hlc = excluded.hlc,
+        payload_json = excluded.payload_json
+    `);
+    const upsertTaskStmt = this.db.prepare(`
+      INSERT INTO tasks (id, list_id, hlc, payload_json)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        list_id = excluded.list_id,
+        hlc = excluded.hlc,
+        payload_json = excluded.payload_json
+    `);
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const list of targetLists) {
+        const hlc = this.serverClock.now();
+        const restoredList: TaskList = {
+          ...list,
+          deletedAt: null,
+          updatedAt: nowIso,
+          hlc,
+        };
+        upsertListStmt.run(
+          restoredList.id,
+          cleanKey,
+          restoredList.inviteToken,
+          restoredList.readonlyInviteToken ?? null,
+          restoredList.hlc,
+          JSON.stringify(restoredList),
+        );
+        maxHlc = pickHigherHlc(maxHlc, hlc);
+      }
+
+      for (const task of targetTasks) {
+        const hlc = this.serverClock.now();
+        const restoredTask: TaskItem = {
+          ...task,
+          deletedAt: null,
+          updatedAt: nowIso,
+          hlc,
+          fieldHlcs: {
+            ...task.fieldHlcs,
+            title: hlc,
+            note: hlc,
+            steps: hlc,
+            dueDate: hlc,
+            reminderAt: hlc,
+            myDayDate: hlc,
+            starred: hlc,
+            deletedAt: hlc,
+          },
+        };
+        upsertTaskStmt.run(
+          restoredTask.id,
+          restoredTask.listId,
+          restoredTask.hlc,
+          JSON.stringify(restoredTask),
+        );
+        maxHlc = pickHigherHlc(maxHlc, hlc);
+      }
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+
+    return {
+      restoredLists: targetLists.length,
+      restoredTasks: targetTasks.length,
+      cursorHlc: maxHlc,
+    };
   }
 
   async deleteWorkspace(syncKey: string, userId?: string): Promise<number> {
@@ -363,6 +787,9 @@ export class SqliteSyncRepository implements SyncRepository {
       }
       if (cleanKey) {
         this.db.prepare('DELETE FROM entitlements WHERE user_key = ?').run(cleanKey);
+        this.db.prepare('DELETE FROM workspace_devices WHERE sync_key = ?').run(cleanKey);
+        this.db.prepare('DELETE FROM workspace_memberships WHERE sync_key = ?').run(cleanKey);
+        this.db.prepare('DELETE FROM workspace_snapshots WHERE owner_sync_key = ?').run(cleanKey);
       }
       this.db.exec('COMMIT');
       return ownedIds.length;

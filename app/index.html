@@ -129,6 +129,31 @@
             </span>
             <span class="nav-count" id="countTasks">0</span>
           </button>
+          <button type="button" id="navSmartAssigned" class="nav-item" data-view="assigned" hidden>
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
+              <span class="nav-label" data-i18n="nav.assigned">Mir zugewiesen</span>
+            </span>
+            <span class="nav-count" id="countAssigned">0</span>
+          </button>
+          <button type="button" id="navSmartTrash" class="nav-item" data-view="trash">
+            <span class="nav-label-wrap">
+              <span class="nav-glyph" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+              </span>
+              <span class="nav-label" data-i18n="nav.trash">Papierkorb</span>
+            </span>
+            <span class="nav-count" id="countTrash">0</span>
+          </button>
         </nav>
 
         <div class="sidebar-divider"></div>
@@ -197,6 +222,13 @@
             </div>
           </div>
           <div class="header-actions">
+            <label for="viewSortSelect" class="sr-only" data-i18n="sort.label">Sortierung</label>
+            <select id="viewSortSelect" class="sort-select">
+              <option value="default" data-i18n="sort.default">Standard</option>
+              <option value="due-date" data-i18n="sort.dueDate">Nach Fälligkeit</option>
+              <option value="starred" data-i18n="sort.starred">Nach Wichtigkeit</option>
+              <option value="title" data-i18n="sort.title">Alphabetisch (A–Z)</option>
+            </select>
             <button
               type="button"
               id="renameListBtn"
@@ -208,6 +240,19 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              id="duplicateListBtn"
+              class="btn-icon"
+              data-i18n-aria="list.duplicate"
+              title="Liste duplizieren"
+              hidden
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" />
+                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
               </svg>
             </button>
             <button
@@ -227,8 +272,20 @@
             <button type="button" id="shareListBtn" class="btn-secondary btn-compact" data-i18n="list.share" hidden>
               Teilen
             </button>
+            <button type="button" id="emptyTrashBtn" class="btn-danger btn-compact" data-i18n="trash.emptyBtn" hidden>
+              Papierkorb leeren
+            </button>
           </div>
         </header>
+
+        <div id="plannedFilterBar" class="filter-chip-bar" role="group" aria-label="Planned filters" hidden>
+          <button type="button" class="filter-chip" data-planned-filter="all" aria-pressed="true" data-i18n="planned.filterAll">Alles geplant</button>
+          <button type="button" class="filter-chip" data-planned-filter="overdue" aria-pressed="false" data-i18n="planned.filterOverdue">Überfällig</button>
+          <button type="button" class="filter-chip" data-planned-filter="today" aria-pressed="false" data-i18n="planned.filterToday">Heute</button>
+          <button type="button" class="filter-chip" data-planned-filter="tomorrow" aria-pressed="false" data-i18n="planned.filterTomorrow">Morgen</button>
+          <button type="button" class="filter-chip" data-planned-filter="this-week" aria-pressed="false" data-i18n="planned.filterThisWeek">Diese Woche</button>
+          <button type="button" class="filter-chip" data-planned-filter="later" aria-pressed="false" data-i18n="planned.filterLater">Später</button>
+        </div>
 
         <section id="suggestionsSection" class="suggestions-panel" hidden>
           <details id="suggestionsDetails">
@@ -309,6 +366,11 @@
             <span data-i18n="task.completedSection">Erledigt</span>
             <span id="completedCount" class="pill-count">0</span>
           </summary>
+          <div class="completed-actions-row">
+            <button type="button" id="clearCompletedBtn" class="btn-ghost btn-compact" data-i18n="task.clearCompletedBtn">
+              Erledigte in Papierkorb
+            </button>
+          </div>
           <ul id="completedTasksList" class="task-list completed"></ul>
         </details>
       </main>
@@ -372,6 +434,19 @@
             <label for="renameListInput" class="sr-only" data-i18n="list.renameDialogTitle">Liste umbenennen</label>
             <input id="renameListInput" type="text" autocomplete="off" maxlength="80" required />
           </div>
+          <div class="field-group">
+            <label for="renameListFolderInput" data-i18n="list.folderLabel">Ordner / Gruppe (optional)</label>
+            <input
+              id="renameListFolderInput"
+              type="text"
+              autocomplete="off"
+              maxlength="60"
+              list="folderSuggestionsList"
+              data-i18n-placeholder="list.folderPlaceholder"
+              placeholder="z. B. Arbeit, Projekte, Familie"
+            />
+            <datalist id="folderSuggestionsList"></datalist>
+          </div>
           <div class="dialog-footer">
             <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
@@ -415,6 +490,7 @@
             >
               Freigabe beenden
             </button>
+            <p id="shareFreeLimitHint" class="field-hint" data-i18n="share.freeLimitHint" hidden></p>
           </section>
 
           <div class="sidebar-divider"></div>
@@ -508,10 +584,30 @@
             <div class="field-group">
               <label for="detailDueDateInput" data-i18n="task.dueDate">Fälligkeitsdatum</label>
               <input id="detailDueDateInput" type="date" />
+              <div class="preset-pills">
+                <button type="button" id="presetDueTodayBtn" class="preset-pill" data-i18n="preset.today">Heute</button>
+                <button type="button" id="presetDueTomorrowBtn" class="preset-pill" data-i18n="preset.tomorrow">Morgen</button>
+                <button type="button" id="presetDueNextWeekBtn" class="preset-pill" data-i18n="preset.nextWeek">Nächste Woche</button>
+              </div>
             </div>
             <div class="field-group">
               <label for="detailReminderInput" data-i18n="task.reminder">Erinnerung</label>
               <input id="detailReminderInput" type="datetime-local" />
+              <div class="preset-pills">
+                <button type="button" id="presetRemTodayBtn" class="preset-pill" data-i18n="preset.laterToday">Heute 18:00</button>
+                <button type="button" id="presetRemTomorrowBtn" class="preset-pill" data-i18n="preset.tomorrowMorning">Morgen 09:00</button>
+              </div>
+            </div>
+            <div class="field-group">
+              <label for="detailAssigneeInput" data-i18n="task.assigneeLabel">Zugewiesen an (@Name)</label>
+              <input
+                id="detailAssigneeInput"
+                type="text"
+                autocomplete="off"
+                maxlength="40"
+                data-i18n-placeholder="task.assigneePlaceholder"
+                placeholder="z. B. Daniel"
+              />
             </div>
             <div class="field-group">
               <label for="detailRecurrenceSelect" data-i18n="task.recurrence">Wiederholung</label>
@@ -642,6 +738,17 @@
                 <option value="de">Deutsch</option>
                 <option value="en">English</option>
               </select>
+            </div>
+            <div class="field-group">
+              <label for="settingsDisplayNameInput" data-i18n="settings.displayNameLabel">Dein Name / Kürzel (für @Zuweisungen in geteilten Listen)</label>
+              <input
+                id="settingsDisplayNameInput"
+                type="text"
+                autocomplete="off"
+                maxlength="40"
+                data-i18n-placeholder="settings.displayNamePlaceholder"
+                placeholder="z. B. Daniel"
+              />
             </div>
 
             <div class="checkbox-group">

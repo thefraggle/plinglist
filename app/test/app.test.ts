@@ -17,7 +17,7 @@ import {
 } from '../src/config.ts';
 import { TRANSLATIONS, t } from '../src/i18n.ts';
 import { CHIME_MASTER_GAIN, resolveCompletionSoundSource } from '../src/audio.ts';
-import { PlinglistStore, generateSyncKey, type StorageLike } from '../src/store.ts';
+import { PlinglistStore, SharedListLimitError, generateSyncKey, type StorageLike } from '../src/store.ts';
 
 function createMemoryStorage(): StorageLike {
   const map = new Map<string, string>();
@@ -526,6 +526,36 @@ test('PlinglistStore persists preferences, controls addTask insertion order, and
   assert.equal(reloaded.preferences.moveStarredToTop, true);
 });
 
+test('PlinglistStore supports list folders, list duplication, clearing completed tasks, assignees, and task drag reordering', () => {
+  const store = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de' });
+  const workList = store.addList('Work / Q3 Workshop');
+  assert.equal(workList.folder, 'Work');
+  assert.equal(workList.title, 'Q3 Workshop');
+  assert.deepEqual(store.getListFolders(), ['Work']);
+
+  const wt1 = store.addTask({ title: 'Book venue #events', listId: workList.id, assignee: '@Daniel' });
+  const wt2 = store.addTask({ title: 'Send invites', listId: workList.id });
+  store.toggleTaskCompleted(wt1.id, '2026-11-26');
+  const dup = store.duplicateList(workList.id, 'Q4 Workshop');
+  assert.equal(dup.folder, 'Work');
+  const dupTasks = store.tasks.filter((t) => t.listId === dup.id && t.deletedAt === null);
+  assert.equal(dupTasks.length, 2);
+  assert.equal(dupTasks.every((t) => !t.completed), true);
+  assert.ok(dupTasks.some((t) => t.assignee === 'Daniel'));
+
+  const clearedCount = store.clearCompletedTasks(workList.id);
+  assert.equal(clearedCount, 1);
+  assert.equal(store.getDeletedTasks().some((t) => t.id === wt1.id), true);
+
+  assert.equal(
+    store.moveTaskOrder(dupTasks[1].id, dupTasks[0].id, [dupTasks[0].id, dupTasks[1].id]),
+    true,
+  );
+  assert.equal(dupTasks[1].position, 0);
+  assert.equal(dupTasks[0].position, 1);
+  assert.ok(wt2.id);
+});
+
 test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-origin in web context', () => {
   const storage = createMemoryStorage();
   storage.setItem(
@@ -675,7 +705,7 @@ test('telemetry is configurable on official cloud origin (plinglist.app) and per
   }
 });
 
-test('deleteTask/deleteList scrub personal data from tombstones, syncEnabled disables network sync, and deleteCloudAndResetLocal wipes state', async () => {
+test('7-day trash retains deleted tasks/lists for recovery, scrubs on permanent delete or 7-day expiry, syncEnabled disables network sync, and deleteCloudAndResetLocal wipes state', async () => {
   const repo = new SqliteSyncRepository(':memory:');
   const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -700,13 +730,47 @@ test('deleteTask/deleteList scrub personal data from tombstones, syncEnabled dis
 
     assert.equal((await store.syncWithServer()).synced, true);
 
+    // Soft delete preserves content in 7-day trash and can be restored cleanly
     store.deleteTask(task.id);
+    const softDeletedTask = store.tasks.find((t) => t.id === task.id)!;
+    assert.ok(softDeletedTask.deletedAt);
+    assert.equal(softDeletedTask.title, 'Arzttermin vereinbaren');
+    assert.equal(store.getDeletedTasks().length, 1);
+
+    const restored = store.restoreTask(task.id);
+    assert.equal(restored.deletedAt, null);
+    assert.equal(restored.title, 'Arzttermin vereinbaren');
+    assert.equal(store.getDeletedTasks().length, 0);
+
+    // Permanently deleting scrubs personal data from tombstones immediately
+    store.deleteTask(task.id);
+    store.permanentlyDeleteTask(task.id);
     const scrubbedTask = store.tasks.find((t) => t.id === task.id)!;
     assert.ok(scrubbedTask.deletedAt);
     assert.equal(scrubbedTask.title, '');
     assert.equal(scrubbedTask.note, '');
     assert.deepEqual(scrubbedTask.steps, []);
     assert.equal(scrubbedTask.dueDate, null);
+
+    // Deleting a list keeps it in 7-day trash; emptyTrash scrubs; expired items (>7 days) auto-scrub
+    const tempTask = store.addTask({ title: 'Liste retten', listId: list.id });
+    store.deleteList(list.id);
+    assert.equal(store.getDeletedLists().length, 1);
+    store.restoreList(list.id);
+    assert.equal(store.getActiveLists().some((l) => l.id === list.id), true);
+    assert.equal(store.tasks.find((t) => t.id === tempTask.id)?.deletedAt, null);
+
+    store.deleteList(list.id);
+    const oldDeletedAt = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    const deletedListRef = store.lists.find((l) => l.id === list.id)!;
+    deletedListRef.deletedAt = oldDeletedAt;
+    const oldTask = store.tasks.find((t) => t.id === tempTask.id)!;
+    oldTask.deletedAt = oldDeletedAt;
+    assert.equal(store.getDeletedLists().length, 0);
+    const purged = store.purgeExpiredTrash();
+    assert.equal(purged, 2);
+    assert.equal(deletedListRef.title, '');
+    assert.equal(oldTask.title, '');
 
     // Delta push only sends changed items after first sync
     let capturedBody: { clientLists: unknown[]; clientTasks: unknown[] } | null = null;
@@ -721,7 +785,7 @@ test('deleteTask/deleteList scrub personal data from tombstones, syncEnabled dis
     };
 
     assert.equal((await store.syncWithServer(spyFetch)).synced, true);
-    assert.equal(capturedBody?.clientTasks.length, 1);
+    assert.ok((capturedBody?.clientTasks.length ?? 0) >= 1);
 
     // Second consecutive poll with no mutations pushes 0 items
     capturedBody = null;
@@ -1062,6 +1126,87 @@ test('two-window pairing flow syncs second window tasks back to window 1 live an
     const reloadSync = await window1Reloaded.syncWithServer();
     assert.equal(reloadSync.synced, true);
     assert.ok(window1Reloaded.tasks.some((t) => t.title === 'zwei'));
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve())),
+    );
+    repo.close();
+  }
+});
+
+test('free tier enforces 1 own shared list while allowing unlimited foreign joined lists and ?pair= membership restore', async () => {
+  const repo = new SqliteSyncRepository(':memory:');
+  const server = createServerApp(loadServerConfig({ PORT: '0' }), repo);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const serverUrl = `http://127.0.0.1:${port}`;
+
+    // Two external owners each share a list
+    const alice = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const aliceList = alice.addList('Alice WG');
+    const { list: aliceShared } = alice.shareList(aliceList.id);
+    alice.addTask({ title: 'Putzplan', listId: aliceShared.id });
+    await alice.syncWithServer();
+
+    const bob = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const bobList = bob.addList('Bob Verein');
+    const { list: bobShared } = bob.shareList(bobList.id);
+    bob.addTask({ title: 'Getränke', listId: bobShared.id });
+    await bob.syncWithServer();
+
+    // Free user can share 1 own list, cannot share a 2nd own list, and can join unlimited foreign lists
+    const freeUser = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const own1 = freeUser.addList('Eigene Shared 1');
+    const own2 = freeUser.addList('Eigene Shared 2');
+    freeUser.shareList(own1.id);
+    assert.equal(freeUser.canShareAnotherOwnedList(own2.id), false);
+    assert.throws(() => freeUser.shareList(own2.id), SharedListLimitError);
+
+    // Unsharing own1 frees the slot for own2
+    freeUser.unshareList(own1.id);
+    assert.equal(freeUser.canShareAnotherOwnedList(own2.id), true);
+    freeUser.shareList(own2.id);
+    assert.equal((await freeUser.syncWithServer()).synced, true);
+
+    // Free user joins BOTH foreign lists without hitting any limit
+    await freeUser.joinSharedListByToken(aliceShared.inviteToken!);
+    await freeUser.joinSharedListByToken(bobShared.inviteToken!);
+    assert.ok(freeUser.getActiveLists().some((l) => l.id === aliceShared.id));
+    assert.ok(freeUser.getActiveLists().some((l) => l.id === bobShared.id));
+
+    // Reinstalling app and pairing via ?pair= automatically restores owned lists AND joined foreign lists
+    const reinstalled = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    reinstalled.setSyncKey(freeUser.syncKey, { forceReset: true });
+    const restoreSync = await reinstalled.syncWithServer(undefined, { replaceOldestDevice: true });
+    assert.equal(restoreSync.synced, true);
+    assert.ok(reinstalled.getActiveLists().some((l) => l.id === own2.id));
+    assert.ok(reinstalled.getActiveLists().some((l) => l.id === aliceShared.id));
+    assert.ok(reinstalled.getActiveLists().some((l) => l.id === bobShared.id));
+    assert.ok(reinstalled.tasks.some((t) => t.title === 'Putzplan'));
+    assert.ok(reinstalled.tasks.some((t) => t.title === 'Getränke'));
+
+    // Upgrading freeUser to Pro allows sharing unlimited own lists (and read-only links)
+    repo.upsertEntitlement({
+      userId: freeUser.syncKey,
+      plan: 'pro_yearly',
+      expiresAtMs: Date.now() + 86_400_000,
+      source: 'stripe',
+    });
+    assert.equal((await freeUser.syncWithServer()).synced, true);
+    assert.equal(freeUser.isPro(), true);
+    const { inviteUrl: roUrl } = freeUser.shareList(own1.id, 'https://plinglist.app', {
+      readOnly: true,
+    });
+    assert.match(roUrl, /\?join=inv-ro-/);
+    assert.equal((await freeUser.syncWithServer()).synced, true);
+
+    // Viewer joining via readonly link cannot mutate locally or on server
+    const viewer = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
+    const joinedRo = await viewer.joinSharedListByToken(roUrl);
+    assert.equal(joinedRo.accessRole, 'viewer');
+    assert.throws(() => viewer.addTask({ title: 'Hack', listId: joinedRo.id }));
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

@@ -1,4 +1,6 @@
 import {
+  FREE_MAX_OWNED_SHARED_LISTS,
+  FREE_TRASH_RETENTION_DAYS,
   HlcClock,
   compareHlc,
   computeNextDueDate,
@@ -8,6 +10,7 @@ import {
   mergeListLww,
   mergeTaskLww,
   type HlcTimestamp,
+  type ListAccessRole,
   type RecurrencePattern,
   type TaskItem,
   type TaskList,
@@ -39,6 +42,7 @@ export interface PlinglistPreferences {
   telemetryEnabled: boolean;
   telemetryOptedOut?: boolean;
   syncEnabled: boolean;
+  displayName: string;
 }
 
 export const DEFAULT_PREFERENCES: PlinglistPreferences = {
@@ -51,13 +55,38 @@ export const DEFAULT_PREFERENCES: PlinglistPreferences = {
   telemetryEnabled: true,
   telemetryOptedOut: false,
   syncEnabled: true,
+  displayName: '',
 };
+
+export type StoreEntitlementPlan = 'free' | 'pro_yearly' | 'pro_lifetime';
+
+export class SharedListLimitError extends Error {
+  readonly code = 'SHARED_LIST_LIMIT_REACHED';
+
+  constructor() {
+    super(
+      `Free plan allows up to ${FREE_MAX_OWNED_SHARED_LISTS} active own shared list`,
+    );
+    this.name = 'SharedListLimitError';
+  }
+}
+
+export class ProEntitlementRequiredError extends Error {
+  readonly code = 'PRO_ENTITLEMENT_REQUIRED';
+
+  constructor(feature = 'this feature') {
+    super(`Plinglist Pro entitlement required for ${feature}`);
+    this.name = 'ProEntitlementRequiredError';
+  }
+}
 
 interface PersistedState {
   version: 1;
   userId?: string;
   syncKey?: string;
   cursorHlc?: HlcTimestamp | null;
+  entitlementPlan?: StoreEntitlementPlan;
+  leftListIds?: string[];
   locale: SupportedLocale;
   serverUrl: string;
   soundEnabled: boolean;
@@ -74,6 +103,7 @@ export interface AddTaskInput {
   dueDate?: string | null;
   recurrence?: RecurrencePattern | null;
   note?: string;
+  assignee?: string | null;
 }
 
 const STORAGE_KEY = 'plinglist.local.v1';
@@ -85,15 +115,32 @@ function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createInviteToken(): string {
+function createInviteToken(prefix: 'inv' | 'inv-ro' = 'inv'): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return `inv-${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    return `${prefix}-${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
   }
   const fallback = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.padEnd(
     24,
     '0',
   );
-  return `inv-${fallback.slice(0, 24)}`;
+  return `${prefix}-${fallback.slice(0, 24)}`;
+}
+
+const MS_PER_DAY = 86_400_000;
+
+function isTaskScrubbed(task: TaskItem): boolean {
+  return task.deletedAt !== null && task.title === '' && task.note === '' && task.steps.length === 0;
+}
+
+function isListScrubbed(list: TaskList): boolean {
+  return list.deletedAt !== null && list.title === '';
+}
+
+function isWithinRetentionWindow(deletedAt: string | null, nowMs: number, retentionDays: number): boolean {
+  if (!deletedAt) return false;
+  const deletedMs = Date.parse(deletedAt);
+  if (!Number.isFinite(deletedMs)) return false;
+  return nowMs - deletedMs <= retentionDays * MS_PER_DAY;
 }
 
 export function generateSyncKey(): string {
@@ -137,6 +184,9 @@ export class PlinglistStore {
   syncKey: string = generateSyncKey();
   cursorHlc: HlcTimestamp | null = null;
   private lastPushedHlc: HlcTimestamp | null = null;
+  entitlementPlan: StoreEntitlementPlan = 'free';
+  leftListIds: string[] = [];
+  lastSyncErrorCode: string | null = null;
   locale: SupportedLocale = 'de';
   serverUrl: string = getDefaultServerUrl();
   soundEnabled = true;
@@ -302,6 +352,13 @@ export class PlinglistStore {
       this.userId = parsed.userId || this.userId;
       this.syncKey = parsed.syncKey?.trim() || this.syncKey;
       this.cursorHlc = parsed.cursorHlc ?? null;
+      this.entitlementPlan =
+        parsed.entitlementPlan === 'pro_yearly' || parsed.entitlementPlan === 'pro_lifetime'
+          ? parsed.entitlementPlan
+          : 'free';
+      this.leftListIds = Array.isArray(parsed.leftListIds)
+        ? parsed.leftListIds.filter((id): id is string => typeof id === 'string')
+        : [];
       this.locale = parsed.locale === 'en' ? 'en' : 'de';
       const loadedServerUrl = parsed.serverUrl
         ? normalizeServerUrl(parsed.serverUrl)
@@ -328,7 +385,8 @@ export class PlinglistStore {
         this.clock.receive(task.hlc);
       }
       const consolidated = this.consolidateWorkspaceLists();
-      if (consolidated || migratedLegacyApiUrl) {
+      const purgedCount = this.purgeExpiredTrash();
+      if (consolidated || migratedLegacyApiUrl || purgedCount > 0) {
         this.persist(true);
       }
       return this.lists.length > 0;
@@ -344,6 +402,8 @@ export class PlinglistStore {
         userId: this.userId,
         syncKey: this.syncKey,
         cursorHlc: this.cursorHlc,
+        entitlementPlan: this.entitlementPlan,
+        leftListIds: this.leftListIds,
         locale: this.locale,
         serverUrl: this.serverUrl,
         soundEnabled: this.soundEnabled,
@@ -364,12 +424,73 @@ export class PlinglistStore {
     }
   }
 
+  isPro(): boolean {
+    return this.entitlementPlan === 'pro_yearly' || this.entitlementPlan === 'pro_lifetime';
+  }
+
+  isForeignJoinedList(list: TaskList): boolean {
+    return list.accessRole === 'editor' || list.accessRole === 'viewer';
+  }
+
+  isReadOnlyList(listId: string): boolean {
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    return list?.accessRole === 'viewer';
+  }
+
+  private assertListWritable(listId: string): void {
+    if (this.isReadOnlyList(listId)) {
+      throw new Error('Cannot modify a read-only shared list');
+    }
+  }
+
   private requireTask(taskId: string): TaskItem {
     const task = this.tasks.find((item) => item.id === taskId && item.deletedAt === null);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
     return task;
+  }
+
+  private requireWritableTask(taskId: string): TaskItem {
+    const task = this.requireTask(taskId);
+    this.assertListWritable(task.listId);
+    return task;
+  }
+
+  private scrubTaskFields(task: TaskItem, nowIso: string, hlc: HlcTimestamp): void {
+    task.title = '';
+    task.note = '';
+    task.steps = [];
+    task.dueDate = null;
+    task.reminderAt = null;
+    task.myDayDate = null;
+    task.starred = false;
+    task.assignee = null;
+    task.deletedAt = nowIso;
+    task.updatedAt = nowIso;
+    task.hlc = hlc;
+    task.fieldHlcs = {
+      ...task.fieldHlcs,
+      title: hlc,
+      note: hlc,
+      steps: hlc,
+      dueDate: hlc,
+      reminderAt: hlc,
+      myDayDate: hlc,
+      starred: hlc,
+      assignee: hlc,
+      deletedAt: hlc,
+    };
+  }
+
+  private scrubListFields(list: TaskList, nowIso: string, hlc: HlcTimestamp): void {
+    list.title = '';
+    list.shared = false;
+    list.inviteToken = null;
+    list.readonlyInviteToken = null;
+    list.deletedAt = nowIso;
+    list.updatedAt = nowIso;
+    list.hlc = hlc;
   }
 
   getActiveLists(): TaskList[] {
@@ -380,17 +501,45 @@ export class PlinglistStore {
     return this.getActiveLists().filter((list) => !this.isSystemTasksList(list.id));
   }
 
-  addList(title: string): TaskList {
-    const clean = title.trim();
-    if (!clean) {
+  getOwnedSharedLists(): TaskList[] {
+    return this.getActiveLists().filter((list) => list.shared && !this.isForeignJoinedList(list));
+  }
+
+  canShareAnotherOwnedList(targetListId?: string): boolean {
+    if (this.isPro()) {
+      return true;
+    }
+    const ownedShared = this.getOwnedSharedLists();
+    return (
+      ownedShared.length < FREE_MAX_OWNED_SHARED_LISTS ||
+      (targetListId !== undefined && ownedShared.some((list) => list.id === targetListId))
+    );
+  }
+
+  addList(title: string, folder?: string | null): TaskList {
+    const raw = title.trim();
+    if (!raw) {
       throw new Error('List title must not be empty');
+    }
+    let cleanTitle = raw;
+    let cleanFolder = folder?.trim() || null;
+    if (folder === undefined && raw.includes(' / ')) {
+      const [prefix, ...rest] = raw.split(' / ');
+      const candidateTitle = rest.join(' / ').trim();
+      if (prefix.trim() && candidateTitle) {
+        cleanFolder = prefix.trim();
+        cleanTitle = candidateTitle;
+      }
     }
     const nowIso = new Date().toISOString();
     const list: TaskList = {
       id: createId('list'),
-      title: clean,
+      title: cleanTitle,
+      folder: cleanFolder,
       shared: false,
       inviteToken: null,
+      readonlyInviteToken: null,
+      accessRole: 'owner',
       createdAt: nowIso,
       updatedAt: nowIso,
       deletedAt: null,
@@ -401,10 +550,11 @@ export class PlinglistStore {
     return list;
   }
 
-  renameList(listId: string, nextTitle: string): TaskList {
+  renameList(listId: string, nextTitle: string, nextFolder?: string | null): TaskList {
     if (this.isSystemTasksList(listId)) {
       throw new Error('Cannot rename the default tasks list');
     }
+    this.assertListWritable(listId);
     const clean = nextTitle.trim();
     if (!clean) {
       throw new Error('List title must not be empty');
@@ -414,13 +564,99 @@ export class PlinglistStore {
       throw new Error(`List not found: ${listId}`);
     }
     list.title = clean;
+    if (nextFolder !== undefined) {
+      list.folder = nextFolder?.trim() || null;
+    }
     list.updatedAt = new Date().toISOString();
     list.hlc = this.clock.now();
     this.persist();
     return list;
   }
 
-  deleteList(listId: string): void {
+  duplicateList(listId: string, customTitle?: string): TaskList {
+    const source = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!source) {
+      throw new Error(`List not found: ${listId}`);
+    }
+    const nowIso = new Date().toISOString();
+    const listHlc = this.clock.now();
+    const duplicatedList: TaskList = {
+      id: createId('list'),
+      title: customTitle?.trim() || `${source.title} (2)`,
+      folder: source.folder ?? null,
+      shared: false,
+      inviteToken: null,
+      readonlyInviteToken: null,
+      accessRole: 'owner',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      deletedAt: null,
+      hlc: listHlc,
+    };
+    this.lists.push(duplicatedList);
+
+    const sourceTasks = this.tasks.filter(
+      (task) => task.listId === listId && task.deletedAt === null,
+    );
+    for (const src of sourceTasks) {
+      const hlc = this.clock.now();
+      const cloned: TaskItem = {
+        id: createId('task'),
+        listId: duplicatedList.id,
+        title: src.title,
+        completed: false,
+        completedAt: null,
+        starred: src.starred,
+        myDayDate: null,
+        dueDate: src.dueDate,
+        reminderAt: null,
+        recurrence: src.recurrence,
+        note: src.note,
+        steps: src.steps.map((s, idx) => ({
+          id: createId('step'),
+          title: s.title,
+          completed: false,
+          position: idx,
+        })),
+        assignee: src.assignee ?? null,
+        ...(typeof src.position === 'number' ? { position: src.position } : {}),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        deletedAt: null,
+        hlc,
+        fieldHlcs: {
+          listId: hlc,
+          title: hlc,
+          completed: hlc,
+          completedAt: hlc,
+          starred: hlc,
+          myDayDate: hlc,
+          dueDate: hlc,
+          reminderAt: hlc,
+          recurrence: hlc,
+          note: hlc,
+          steps: hlc,
+          assignee: hlc,
+          ...(typeof src.position === 'number' ? { position: hlc } : {}),
+          deletedAt: hlc,
+        },
+      };
+      this.tasks.push(cloned);
+    }
+    this.persist();
+    return duplicatedList;
+  }
+
+  getListFolders(): string[] {
+    const folders = new Set<string>();
+    for (const list of this.getCustomLists()) {
+      const folder = list.folder?.trim();
+      if (folder) folders.add(folder);
+    }
+    return Array.from(folders).sort((a, b) => a.localeCompare(b));
+  }
+
+  deleteList(listId: string, options?: { permanent?: boolean }): void {
     if (this.isSystemTasksList(listId)) {
       throw new Error('Cannot delete the default tasks list');
     }
@@ -431,41 +667,40 @@ export class PlinglistStore {
     if (this.getActiveLists().length <= 1) {
       throw new Error('Cannot delete the last remaining list');
     }
+    if (this.isForeignJoinedList(list)) {
+      this.leaveSharedList(listId);
+      return;
+    }
     if (list.shared) {
       throw new Error('Cannot delete an actively shared list');
     }
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
-    list.title = '';
-    list.shared = false;
-    list.inviteToken = null;
-    list.deletedAt = nowIso;
-    list.updatedAt = nowIso;
-    list.hlc = hlc;
+    if (options?.permanent) {
+      this.scrubListFields(list, nowIso, hlc);
+      for (const task of this.tasks) {
+        if (task.listId === listId && !isTaskScrubbed(task)) {
+          this.scrubTaskFields(task, nowIso, hlc);
+        }
+      }
+    } else {
+      list.shared = false;
+      list.inviteToken = null;
+      list.readonlyInviteToken = null;
+      list.deletedAt = nowIso;
+      list.updatedAt = nowIso;
+      list.hlc = hlc;
 
-    for (const task of this.tasks) {
-      if (task.listId === listId && task.deletedAt === null) {
-        task.title = '';
-        task.note = '';
-        task.steps = [];
-        task.dueDate = null;
-        task.reminderAt = null;
-        task.myDayDate = null;
-        task.starred = false;
-        task.deletedAt = nowIso;
-        task.updatedAt = nowIso;
-        task.hlc = hlc;
-        task.fieldHlcs = {
-          ...task.fieldHlcs,
-          title: hlc,
-          note: hlc,
-          steps: hlc,
-          dueDate: hlc,
-          reminderAt: hlc,
-          myDayDate: hlc,
-          starred: hlc,
-          deletedAt: hlc,
-        };
+      for (const task of this.tasks) {
+        if (task.listId === listId && task.deletedAt === null) {
+          task.deletedAt = nowIso;
+          task.updatedAt = nowIso;
+          task.hlc = hlc;
+          task.fieldHlcs = {
+            ...task.fieldHlcs,
+            deletedAt: hlc,
+          };
+        }
       }
     }
     this.persist();
@@ -476,17 +711,29 @@ export class PlinglistStore {
     return `${cleanOrigin}/?pair=${encodeURIComponent(this.syncKey)}`;
   }
 
-  getInviteUrl(listId: string, appOrigin?: string): string | null {
+  getInviteUrl(
+    listId: string,
+    appOrigin?: string,
+    options?: { readOnly?: boolean },
+  ): string | null {
     const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
-    if (!list || !list.shared || !list.inviteToken) {
+    if (!list || !list.shared) {
+      return null;
+    }
+    const token = options?.readOnly ? list.readonlyInviteToken : list.inviteToken;
+    if (!token) {
       return null;
     }
     return appOrigin
-      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(list.inviteToken)}`
-      : `${this.serverUrl}/join/${list.inviteToken}`;
+      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(token)}`
+      : `${this.serverUrl}/join/${token}`;
   }
 
-  shareList(listId: string, appOrigin?: string): { list: TaskList; inviteUrl: string } {
+  shareList(
+    listId: string,
+    appOrigin?: string,
+    options?: { readOnly?: boolean },
+  ): { list: TaskList; inviteUrl: string } {
     if (this.isSystemTasksList(listId)) {
       throw new Error('Cannot share the default tasks list');
     }
@@ -494,14 +741,24 @@ export class PlinglistStore {
     if (!list) {
       throw new Error(`List not found: ${listId}`);
     }
+    if (!this.canShareAnotherOwnedList(listId)) {
+      throw new SharedListLimitError();
+    }
+    if (options?.readOnly && !this.isPro()) {
+      throw new ProEntitlementRequiredError('read-only share links');
+    }
     list.shared = true;
-    list.inviteToken = list.inviteToken ?? createInviteToken();
+    list.inviteToken = list.inviteToken ?? createInviteToken('inv');
+    if (options?.readOnly) {
+      list.readonlyInviteToken = list.readonlyInviteToken ?? createInviteToken('inv-ro');
+    }
     list.updatedAt = new Date().toISOString();
     list.hlc = this.clock.now();
     this.persist();
+    const activeToken = options?.readOnly ? list.readonlyInviteToken! : list.inviteToken;
     const inviteUrl = appOrigin
-      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(list.inviteToken)}`
-      : `${this.serverUrl}/join/${list.inviteToken}`;
+      ? `${appOrigin.replace(/\/+$/, '')}/?join=${encodeURIComponent(activeToken)}`
+      : `${this.serverUrl}/join/${activeToken}`;
     return {
       list,
       inviteUrl,
@@ -515,19 +772,33 @@ export class PlinglistStore {
     }
     list.shared = false;
     list.inviteToken = null;
+    list.readonlyInviteToken = null;
     list.updatedAt = new Date().toISOString();
     list.hlc = this.clock.now();
     this.persist();
     return list;
   }
 
+  leaveSharedList(listId: string): void {
+    const list = this.lists.find((item) => item.id === listId);
+    if (!list) return;
+    this.lists = this.lists.filter((item) => item.id !== listId);
+    this.tasks = this.tasks.filter((task) => task.listId !== listId);
+    if (!this.leftListIds.includes(listId)) {
+      this.leftListIds.push(listId);
+    }
+    this.persist();
+  }
+
   addTask(input: AddTaskInput): TaskItem {
+    this.assertListWritable(input.listId);
     const cleanTitle = input.title.trim();
     if (!cleanTitle) {
       throw new Error('Task title must not be empty');
     }
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
+    const cleanAssignee = input.assignee?.trim().replace(/^@+/, '') || null;
     const task: TaskItem = {
       id: createId('task'),
       listId: input.listId,
@@ -541,6 +812,7 @@ export class PlinglistStore {
       recurrence: input.recurrence ?? null,
       note: input.note ?? '',
       steps: [],
+      assignee: cleanAssignee,
       createdAt: nowIso,
       updatedAt: nowIso,
       deletedAt: null,
@@ -557,6 +829,7 @@ export class PlinglistStore {
         recurrence: hlc,
         note: hlc,
         steps: hlc,
+        assignee: hlc,
         deletedAt: hlc,
       },
     };
@@ -573,7 +846,7 @@ export class PlinglistStore {
     taskId: string,
     todayIsoDate = getLocalIsoDate(),
   ): { completedTask: TaskItem; nextRecurringTask: TaskItem | null } {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
     const nextCompleted = !task.completed;
@@ -609,7 +882,7 @@ export class PlinglistStore {
   }
 
   toggleTaskStarred(taskId: string): TaskItem {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const hlc = this.clock.now();
     task.starred = !task.starred;
     task.updatedAt = new Date().toISOString();
@@ -620,7 +893,7 @@ export class PlinglistStore {
   }
 
   toggleTaskMyDay(taskId: string, todayIsoDate = getLocalIsoDate()): TaskItem {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const hlc = this.clock.now();
     task.myDayDate = task.myDayDate === todayIsoDate ? null : todayIsoDate;
     task.updatedAt = new Date().toISOString();
@@ -632,9 +905,17 @@ export class PlinglistStore {
 
   updateTask(
     taskId: string,
-    patch: Partial<Pick<TaskItem, 'title' | 'dueDate' | 'reminderAt' | 'recurrence' | 'note' | 'listId'>>,
+    patch: Partial<
+      Pick<
+        TaskItem,
+        'title' | 'dueDate' | 'reminderAt' | 'recurrence' | 'note' | 'listId' | 'assignee' | 'position'
+      >
+    >,
   ): TaskItem {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
+    if (patch.listId !== undefined) {
+      this.assertListWritable(patch.listId);
+    }
     const hlc = this.clock.now();
     const fieldHlcs = { ...task.fieldHlcs };
 
@@ -665,6 +946,14 @@ export class PlinglistStore {
       task.listId = patch.listId;
       fieldHlcs.listId = hlc;
     }
+    if (patch.assignee !== undefined) {
+      task.assignee = patch.assignee?.trim().replace(/^@+/, '') || null;
+      fieldHlcs.assignee = hlc;
+    }
+    if (patch.position !== undefined) {
+      task.position = patch.position;
+      fieldHlcs.position = hlc;
+    }
 
     task.updatedAt = new Date().toISOString();
     task.hlc = hlc;
@@ -673,12 +962,75 @@ export class PlinglistStore {
     return task;
   }
 
+  clearCompletedTasks(listId?: string): number {
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    let cleared = 0;
+    for (const task of this.tasks) {
+      if (
+        task.deletedAt === null &&
+        task.completed &&
+        (!listId || task.listId === listId) &&
+        !this.isReadOnlyList(task.listId)
+      ) {
+        task.deletedAt = nowIso;
+        task.updatedAt = nowIso;
+        task.hlc = hlc;
+        task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
+        cleared += 1;
+      }
+    }
+    if (cleared > 0) {
+      this.persist();
+    }
+    return cleared;
+  }
+
+  moveTaskOrder(
+    draggedTaskId: string,
+    targetTaskId: string,
+    orderedVisibleIds?: string[],
+  ): boolean {
+    if (draggedTaskId === targetTaskId) return false;
+    const dragged = this.requireWritableTask(draggedTaskId);
+    const target = this.requireTask(targetTaskId);
+    if (!dragged || !target) return false;
+
+    const baseIds =
+      orderedVisibleIds && orderedVisibleIds.length > 0
+        ? orderedVisibleIds.filter((id) =>
+            this.tasks.some((t) => t.id === id && t.deletedAt === null),
+          )
+        : this.tasks.filter((t) => t.deletedAt === null && !t.completed).map((t) => t.id);
+
+    const fromIdx = baseIds.indexOf(draggedTaskId);
+    const toIdx = baseIds.indexOf(targetTaskId);
+    if (fromIdx < 0 || toIdx < 0) return false;
+
+    baseIds.splice(fromIdx, 1);
+    baseIds.splice(toIdx, 0, draggedTaskId);
+
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    baseIds.forEach((id, index) => {
+      const item = this.tasks.find((t) => t.id === id);
+      if (item && !this.isReadOnlyList(item.listId)) {
+        item.position = index;
+        item.updatedAt = nowIso;
+        item.hlc = hlc;
+        item.fieldHlcs = { ...item.fieldHlcs, position: hlc };
+      }
+    });
+    this.persist();
+    return true;
+  }
+
   addTaskStep(taskId: string, stepTitle: string): TaskItem {
     const clean = stepTitle.trim();
     if (!clean) {
       throw new Error('Step title must not be empty');
     }
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const hlc = this.clock.now();
     task.steps.push({
       id: createId('step'),
@@ -694,7 +1046,7 @@ export class PlinglistStore {
   }
 
   toggleTaskStep(taskId: string, stepId: string): TaskItem {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const step = task.steps.find((s) => s.id === stepId);
     if (!step) {
       throw new Error(`Step not found: ${stepId}`);
@@ -709,7 +1061,7 @@ export class PlinglistStore {
   }
 
   deleteTaskStep(taskId: string, stepId: string): TaskItem {
-    const task = this.requireTask(taskId);
+    const task = this.requireWritableTask(taskId);
     const hlc = this.clock.now();
     task.steps = task.steps
       .filter((s) => s.id !== stepId)
@@ -721,32 +1073,186 @@ export class PlinglistStore {
     return task;
   }
 
-  deleteTask(taskId: string): void {
-    const task = this.requireTask(taskId);
+  deleteTask(taskId: string, options?: { permanent?: boolean }): void {
+    const task = this.requireWritableTask(taskId);
     const nowIso = new Date().toISOString();
     const hlc = this.clock.now();
-    task.title = '';
-    task.note = '';
-    task.steps = [];
-    task.dueDate = null;
-    task.reminderAt = null;
-    task.myDayDate = null;
-    task.starred = false;
-    task.deletedAt = nowIso;
+    if (options?.permanent) {
+      this.scrubTaskFields(task, nowIso, hlc);
+    } else {
+      task.deletedAt = nowIso;
+      task.updatedAt = nowIso;
+      task.hlc = hlc;
+      task.fieldHlcs = {
+        ...task.fieldHlcs,
+        deletedAt: hlc,
+      };
+    }
+    this.persist();
+  }
+
+  getDeletedLists(
+    nowMs = Date.now(),
+    retentionDays = FREE_TRASH_RETENTION_DAYS,
+  ): TaskList[] {
+    return this.lists.filter(
+      (list) =>
+        !this.isSystemTasksList(list.id) &&
+        !isListScrubbed(list) &&
+        list.title.trim().length > 0 &&
+        isWithinRetentionWindow(list.deletedAt, nowMs, retentionDays),
+    );
+  }
+
+  getDeletedTasks(
+    nowMs = Date.now(),
+    retentionDays = FREE_TRASH_RETENTION_DAYS,
+  ): TaskItem[] {
+    return this.tasks.filter(
+      (task) =>
+        !isTaskScrubbed(task) &&
+        task.title.trim().length > 0 &&
+        isWithinRetentionWindow(task.deletedAt, nowMs, retentionDays),
+    );
+  }
+
+  restoreList(listId: string): TaskList {
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt !== null);
+    if (!list || isListScrubbed(list)) {
+      throw new Error(`Deleted list not recoverable: ${listId}`);
+    }
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    list.deletedAt = null;
+    list.updatedAt = nowIso;
+    list.hlc = hlc;
+
+    for (const task of this.tasks) {
+      if (task.listId === listId && task.deletedAt !== null && !isTaskScrubbed(task)) {
+        task.deletedAt = null;
+        task.updatedAt = nowIso;
+        task.hlc = hlc;
+        task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
+      }
+    }
+    this.persist();
+    return list;
+  }
+
+  restoreTask(taskId: string): TaskItem {
+    const task = this.tasks.find((item) => item.id === taskId && item.deletedAt !== null);
+    if (!task || isTaskScrubbed(task)) {
+      throw new Error(`Deleted task not recoverable: ${taskId}`);
+    }
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+
+    const parentList = this.lists.find((item) => item.id === task.listId);
+    if (parentList && parentList.deletedAt !== null) {
+      if (!isListScrubbed(parentList)) {
+        parentList.deletedAt = null;
+        parentList.updatedAt = nowIso;
+        parentList.hlc = hlc;
+      } else {
+        task.listId = this.getDefaultTasksListId();
+        task.fieldHlcs = { ...task.fieldHlcs, listId: hlc };
+      }
+    } else if (!parentList) {
+      task.listId = this.getDefaultTasksListId();
+      task.fieldHlcs = { ...task.fieldHlcs, listId: hlc };
+    }
+
+    task.deletedAt = null;
     task.updatedAt = nowIso;
     task.hlc = hlc;
-    task.fieldHlcs = {
-      ...task.fieldHlcs,
-      title: hlc,
-      note: hlc,
-      steps: hlc,
-      dueDate: hlc,
-      reminderAt: hlc,
-      myDayDate: hlc,
-      starred: hlc,
-      deletedAt: hlc,
-    };
+    task.fieldHlcs = { ...task.fieldHlcs, deletedAt: hlc };
     this.persist();
+    return task;
+  }
+
+  permanentlyDeleteTask(taskId: string): void {
+    const task = this.tasks.find((item) => item.id === taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    this.assertListWritable(task.listId);
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    this.scrubTaskFields(task, nowIso, hlc);
+    this.persist();
+  }
+
+  permanentlyDeleteList(listId: string): void {
+    if (this.isSystemTasksList(listId)) {
+      throw new Error('Cannot delete the default tasks list');
+    }
+    const list = this.lists.find((item) => item.id === listId);
+    if (!list) {
+      throw new Error(`List not found: ${listId}`);
+    }
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    this.scrubListFields(list, nowIso, hlc);
+    for (const task of this.tasks) {
+      if (task.listId === listId && !isTaskScrubbed(task)) {
+        this.scrubTaskFields(task, nowIso, hlc);
+      }
+    }
+    this.persist();
+  }
+
+  emptyTrash(): { scrubbedLists: number; scrubbedTasks: number } {
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    let scrubbedLists = 0;
+    let scrubbedTasks = 0;
+
+    for (const list of this.lists) {
+      if (list.deletedAt !== null && !isListScrubbed(list) && !this.isSystemTasksList(list.id)) {
+        this.scrubListFields(list, nowIso, hlc);
+        scrubbedLists += 1;
+      }
+    }
+    for (const task of this.tasks) {
+      if (task.deletedAt !== null && !isTaskScrubbed(task)) {
+        this.scrubTaskFields(task, nowIso, hlc);
+        scrubbedTasks += 1;
+      }
+    }
+    if (scrubbedLists > 0 || scrubbedTasks > 0) {
+      this.persist();
+    }
+    return { scrubbedLists, scrubbedTasks };
+  }
+
+  purgeExpiredTrash(
+    nowMs = Date.now(),
+    retentionDays = FREE_TRASH_RETENTION_DAYS,
+  ): number {
+    const nowIso = new Date(nowMs).toISOString();
+    let purged = 0;
+
+    for (const list of this.lists) {
+      if (
+        list.deletedAt !== null &&
+        !isListScrubbed(list) &&
+        !isWithinRetentionWindow(list.deletedAt, nowMs, retentionDays)
+      ) {
+        this.scrubListFields(list, nowIso, this.clock.now(nowMs));
+        purged += 1;
+      }
+    }
+    for (const task of this.tasks) {
+      if (
+        task.deletedAt !== null &&
+        !isTaskScrubbed(task) &&
+        !isWithinRetentionWindow(task.deletedAt, nowMs, retentionDays)
+      ) {
+        this.scrubTaskFields(task, nowIso, this.clock.now(nowMs));
+        purged += 1;
+      }
+    }
+    return purged;
   }
 
   importJson(rawInput: string): { importedLists: number; importedTasks: number } {
@@ -874,6 +1380,9 @@ export class PlinglistStore {
 
     if (clean !== prevSyncKey || options?.forceReset) {
       this.tasks = [];
+      this.leftListIds = [];
+      this.entitlementPlan = 'free';
+      this.lastSyncErrorCode = null;
       this.seedDefaults('000000000000000:00000:init');
     } else {
       this.consolidateWorkspaceLists();
@@ -935,6 +1444,7 @@ export class PlinglistStore {
 
   async syncWithServer(
     fetchFn: typeof fetch = globalThis.fetch,
+    options?: { replaceOldestDevice?: boolean },
   ): Promise<{ synced: boolean; pulledLists: number; pulledTasks: number; revokedLists: number }> {
     if (!this.preferences.syncEnabled) {
       return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
@@ -942,8 +1452,12 @@ export class PlinglistStore {
 
     const inviteTokens: Record<string, string> = {};
     for (const list of this.lists) {
-      if (list.inviteToken) {
-        inviteTokens[list.id] = list.inviteToken;
+      const token =
+        list.accessRole === 'viewer'
+          ? (list.readonlyInviteToken ?? list.inviteToken)
+          : (list.inviteToken ?? list.readonlyInviteToken);
+      if (token) {
+        inviteTokens[list.id] = token;
       }
     }
 
@@ -963,6 +1477,7 @@ export class PlinglistStore {
       ...clientLists.map((l) => l.hlc),
       ...clientTasks.map((t) => t.hlc),
     ];
+    const pendingLeaveListIds = [...this.leftListIds];
 
     const requestSyncKey = this.syncKey;
     try {
@@ -977,9 +1492,17 @@ export class PlinglistStore {
           clientLists,
           clientTasks,
           sinceHlc: sendFullSnapshot ? null : this.cursorHlc,
+          ...(options?.replaceOldestDevice ? { replaceOldestDevice: true } : {}),
+          ...(pendingLeaveListIds.length > 0 ? { leaveListIds: pendingLeaveListIds } : {}),
         }),
       });
       if (!response.ok) {
+        try {
+          const errBody = (await response.json()) as { error?: string };
+          this.lastSyncErrorCode = typeof errBody.error === 'string' ? errBody.error : null;
+        } catch {
+          this.lastSyncErrorCode = null;
+        }
         return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
       }
       const data = (await response.json()) as {
@@ -987,9 +1510,18 @@ export class PlinglistStore {
         serverTasks: TaskItem[];
         revokedListIds?: string[];
         cursorHlc: HlcTimestamp | null;
+        plan?: StoreEntitlementPlan;
       };
       if (this.syncKey !== requestSyncKey) {
         return { synced: false, pulledLists: 0, pulledTasks: 0, revokedLists: 0 };
+      }
+      this.lastSyncErrorCode = null;
+      if (data.plan === 'free' || data.plan === 'pro_yearly' || data.plan === 'pro_lifetime') {
+        this.entitlementPlan = data.plan;
+      }
+      if (pendingLeaveListIds.length > 0) {
+        const sentSet = new Set(pendingLeaveListIds);
+        this.leftListIds = this.leftListIds.filter((id) => !sentSet.has(id));
       }
       const applied = this.applyServerSync(data);
       let maxPushed = this.lastPushedHlc;
@@ -1028,6 +1560,9 @@ export class PlinglistStore {
     this.syncKey = generateSyncKey();
     this.cursorHlc = null;
     this.lastPushedHlc = null;
+    this.entitlementPlan = 'free';
+    this.leftListIds = [];
+    this.lastSyncErrorCode = null;
     this.tasks = [];
     this.seedDefaults();
     this.persist(true);
@@ -1050,9 +1585,20 @@ export class PlinglistStore {
     if (!response.ok) {
       throw new Error(`Failed to join shared list (${response.status})`);
     }
-    const data = (await response.json()) as { list: TaskList };
-    const joined = data.list;
+    const data = (await response.json()) as { list: TaskList; accessRole?: ListAccessRole };
+    const resolvedRole: ListAccessRole =
+      data.accessRole ??
+      data.list.accessRole ??
+      (cleanToken.startsWith('inv-ro-') ? 'viewer' : 'editor');
+    const joined: TaskList = {
+      ...data.list,
+      accessRole: resolvedRole,
+      ...(resolvedRole === 'viewer'
+        ? { readonlyInviteToken: cleanToken, inviteToken: cleanToken }
+        : { inviteToken: cleanToken }),
+    };
 
+    this.leftListIds = this.leftListIds.filter((id) => id !== joined.id);
     const index = this.lists.findIndex((l) => l.id === joined.id);
     if (index >= 0) {
       this.lists[index] = mergeListLww(this.lists[index], joined);
