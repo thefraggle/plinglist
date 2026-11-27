@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.34] - 2026-11-27
+
+### Deutsch
+- Direkter 6-Punkte-Griff (`⋮⋮`) an offenen Aufgaben und eigenen Listen zum einfachen Verschieben der Reihenfolge und Zuordnen in Ordner.
+- Optimierte Darstellung der Kopfleiste auf schmalen Bildschirmen: Alle Aktions-Symbole und Schaltflächen bleiben bei kurzen wie langen Listennamen stets vollständig im sichtbaren Bereich.
+
+### English
+- Dedicated 6-dot drag handle (`⋮⋮`) on open tasks and custom lists for effortless reordering and folder grouping.
+- Improved header layout on narrow screens so all action icons and controls stay completely visible with both short and long list names.
+
 ## [0.1.33] - 2026-11-27
 
 ### Deutsch

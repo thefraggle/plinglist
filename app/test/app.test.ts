@@ -1492,6 +1492,12 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.doesNotMatch(iosWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
 
   assert.match(stylesCss, /\.nav-item\s*\{[^}]*font-size:\s*0\.98rem;/s);
+  assert.match(stylesCss, /\.nav-label\s*\{[^}]*text-overflow:\s*ellipsis;/s);
+  assert.match(stylesCss, /\.main-view\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(stylesCss, /\.view-header\s*\{[^}]*flex-wrap:\s*wrap;/s);
+  assert.match(stylesCss, /\.header-actions\s*\{[^}]*flex-wrap:\s*wrap;/s);
+  assert.match(stylesCss, /\.drag-handle\s*\{[^}]*touch-action:\s*none;/s);
+  assert.match(stylesCss, /\.task-row\.is-draggable\s*\{[^}]*grid-template-columns:\s*auto auto 1fr auto;/s);
   assert.match(stylesCss, /\.task-title\s*\{[^}]*font-size:\s*1\.05rem;/s);
   assert.match(stylesCss, /\.task-meta\s*\{[^}]*font-size:\s*0\.85rem;/s);
   assert.doesNotMatch(
@@ -1507,4 +1513,5 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(webAppTs, /plinglist\.firedReminders\.v1/);
   assert.match(webAppTs, /allowWhileIdle:\s*true/);
   assert.match(webAppTs, /showNotification\(/);
+  assert.match(webAppTs, /createDragHandleElement/);
 });

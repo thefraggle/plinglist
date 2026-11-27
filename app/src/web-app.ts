@@ -715,6 +715,35 @@ function initApp(): void {
     return svg;
   }
 
+  function createDragHandleElement(): HTMLSpanElement {
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.setAttribute('aria-hidden', 'true');
+    const svgNs = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('viewBox', '0 0 12 16');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const [cx, cy] of [
+      [4, 3],
+      [8, 3],
+      [4, 8],
+      [8, 8],
+      [4, 13],
+      [8, 13],
+    ]) {
+      const dot = document.createElementNS(svgNs, 'circle');
+      dot.setAttribute('cx', String(cx));
+      dot.setAttribute('cy', String(cy));
+      dot.setAttribute('r', '1.4');
+      svg.appendChild(dot);
+    }
+    handle.appendChild(svg);
+    return handle;
+  }
+
   function formatShortDate(rawDate: string): string {
     const parsed = new Date(`${rawDate}T12:00:00`);
     if (Number.isNaN(parsed.getTime())) return rawDate;
@@ -806,13 +835,18 @@ function initApp(): void {
     orderedVisibleIds?: string[],
   ): HTMLLIElement {
     const li = document.createElement('li');
-    li.className = `task-row${task.completed ? ' is-completed' : ''}`;
-    const readOnly = store.isReadOnlyList(task.listId);
-    const today = getLocalIsoDate();
+    const canDragTask = !isSuggestion && !readOnly && !task.completed;
+    li.className = `task-row${task.completed ? ' is-completed' : ''}${canDragTask ? ' is-draggable' : ''}`;
+    if (canDragTask) {
+      li.dataset.taskId = task.id;
+    }
 
-    if (!isSuggestion && !readOnly && !task.completed) {
+    let taskDragHandle: HTMLSpanElement | null = null;
+    if (canDragTask) {
+      taskDragHandle = createDragHandleElement();
       li.draggable = true;
       li.addEventListener('dragstart', (event) => {
+        draggedListId = null;
         draggedTaskId = task.id;
         li.classList.add('is-dragging');
         event.dataTransfer?.setData('text/plain', task.id);
@@ -820,14 +854,22 @@ function initApp(): void {
       li.addEventListener('dragend', () => {
         draggedTaskId = null;
         li.classList.remove('is-dragging');
+        document.querySelectorAll('.task-row.is-drop-target').forEach((el) => {
+          el.classList.remove('is-drop-target');
+        });
       });
       li.addEventListener('dragover', (event) => {
         if (draggedTaskId && draggedTaskId !== task.id) {
           event.preventDefault();
+          li.classList.add('is-drop-target');
         }
+      });
+      li.addEventListener('dragleave', () => {
+        li.classList.remove('is-drop-target');
       });
       li.addEventListener('drop', (event) => {
         event.preventDefault();
+        li.classList.remove('is-drop-target');
         const sourceId = draggedTaskId ?? event.dataTransfer?.getData('text/plain');
         if (sourceId && sourceId !== task.id) {
           activeSortMode = 'default';
@@ -836,6 +878,64 @@ function initApp(): void {
           }
         }
       });
+
+      let lastTaskTouchX = 0;
+      let lastTaskTouchY = 0;
+      taskDragHandle.addEventListener(
+        'touchstart',
+        (event) => {
+          if (event.touches.length !== 1) return;
+          const touch = event.touches[0];
+          lastTaskTouchX = touch.clientX;
+          lastTaskTouchY = touch.clientY;
+          draggedListId = null;
+          draggedTaskId = task.id;
+          li.classList.add('is-dragging');
+          navigator.vibrate?.(10);
+        },
+        { passive: true },
+      );
+      taskDragHandle.addEventListener(
+        'touchmove',
+        (event) => {
+          if (draggedTaskId !== task.id || event.touches.length !== 1) return;
+          event.preventDefault();
+          const touch = event.touches[0];
+          lastTaskTouchX = touch.clientX;
+          lastTaskTouchY = touch.clientY;
+          document.querySelectorAll('.task-row.is-drop-target').forEach((el) => {
+            el.classList.remove('is-drop-target');
+          });
+          const hit = document.elementFromPoint(lastTaskTouchX, lastTaskTouchY);
+          const targetRow = hit?.closest<HTMLElement>('.task-row[data-task-id]');
+          if (targetRow?.dataset.taskId && targetRow.dataset.taskId !== task.id) {
+            targetRow.classList.add('is-drop-target');
+          }
+        },
+        { passive: false },
+      );
+      const finishTaskTouchDrag = (event: TouchEvent): void => {
+        if (draggedTaskId !== task.id) return;
+        const endTouch = event.changedTouches[0];
+        const dropX = endTouch ? endTouch.clientX : lastTaskTouchX;
+        const dropY = endTouch ? endTouch.clientY : lastTaskTouchY;
+        const hit = document.elementFromPoint(dropX, dropY);
+        const targetRow = hit?.closest<HTMLElement>('.task-row[data-task-id]');
+        const targetId = targetRow?.dataset.taskId;
+        draggedTaskId = null;
+        li.classList.remove('is-dragging');
+        document.querySelectorAll('.task-row.is-drop-target').forEach((el) => {
+          el.classList.remove('is-drop-target');
+        });
+        if (targetId && targetId !== task.id) {
+          activeSortMode = 'default';
+          if (store.moveTaskOrder(task.id, targetId, orderedVisibleIds)) {
+            render();
+          }
+        }
+      };
+      taskDragHandle.addEventListener('touchend', finishTaskTouchDrag);
+      taskDragHandle.addEventListener('touchcancel', finishTaskTouchDrag);
     }
 
     const leftBtn = document.createElement('button');
@@ -952,7 +1052,11 @@ function initApp(): void {
       render();
     });
 
-    li.append(leftBtn, mainCol, starBtn);
+    if (taskDragHandle) {
+      li.append(taskDragHandle, leftBtn, mainCol, starBtn);
+    } else {
+      li.append(leftBtn, mainCol, starBtn);
+    }
     return li;
   }
 
@@ -1155,10 +1259,42 @@ function initApp(): void {
         }),
       );
     }
+    let suppressNextListClick = false;
+    const clearDropTargets = (): void => {
+      document.querySelectorAll('.is-drop-target').forEach((el) => {
+        el.classList.remove('is-drop-target');
+      });
+    };
+    const resolveListDropTarget = (
+      x: number,
+      y: number,
+    ):
+      | { kind: 'list'; el: HTMLElement; listId: string }
+      | { kind: 'folder'; el: HTMLElement; folderName: string }
+      | { kind: 'root'; el: HTMLElement }
+      | null => {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) return null;
+      const listBtn = hit.closest<HTMLElement>('.nav-item[data-list-id]');
+      if (listBtn?.dataset.listId) {
+        return { kind: 'list', el: listBtn, listId: listBtn.dataset.listId };
+      }
+      const folderSummary = hit.closest<HTMLElement>('.list-folder-summary[data-folder-name]');
+      if (folderSummary?.dataset.folderName) {
+        return { kind: 'folder', el: folderSummary, folderName: folderSummary.dataset.folderName };
+      }
+      const heading = hit.closest<HTMLElement>('#customListsHeading');
+      if (heading) {
+        return { kind: 'root', el: heading };
+      }
+      return null;
+    };
+
     const createCustomListNavButton = (list: TaskList): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-item';
+      btn.dataset.listId = list.id;
       btn.draggable = true;
       btn.setAttribute(
         'aria-current',
@@ -1173,9 +1309,7 @@ function initApp(): void {
       btn.addEventListener('dragend', () => {
         draggedListId = null;
         btn.classList.remove('is-dragging');
-        document.querySelectorAll('.is-drop-target').forEach((el) => {
-          el.classList.remove('is-drop-target');
-        });
+        clearDropTargets();
       });
       btn.addEventListener('dragover', (event) => {
         if (draggedListId && draggedListId !== list.id) {
@@ -1196,8 +1330,91 @@ function initApp(): void {
         }
       });
 
+      let touchTimer: number | undefined;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let lastTouchX = 0;
+      let lastTouchY = 0;
+      btn.addEventListener(
+        'touchstart',
+        (event) => {
+          if (event.touches.length !== 1) return;
+          const touch = event.touches[0];
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          lastTouchX = touch.clientX;
+          lastTouchY = touch.clientY;
+          window.clearTimeout(touchTimer);
+          const startedOnHandle =
+            event.target instanceof Element && Boolean(event.target.closest('.drag-handle'));
+          if (startedOnHandle) {
+            draggedTaskId = null;
+            draggedListId = list.id;
+            suppressNextListClick = true;
+            btn.classList.add('is-dragging');
+            navigator.vibrate?.(10);
+            return;
+          }
+          touchTimer = window.setTimeout(() => {
+            draggedTaskId = null;
+            draggedListId = list.id;
+            suppressNextListClick = true;
+            btn.classList.add('is-dragging');
+            navigator.vibrate?.(15);
+          }, 260);
+        },
+        { passive: true },
+      );
+      btn.addEventListener(
+        'touchmove',
+        (event) => {
+          if (event.touches.length !== 1) return;
+          const touch = event.touches[0];
+          lastTouchX = touch.clientX;
+          lastTouchY = touch.clientY;
+          if (draggedListId !== list.id) {
+            if (Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY) > 10) {
+              window.clearTimeout(touchTimer);
+            }
+            return;
+          }
+          event.preventDefault();
+          clearDropTargets();
+          const target = resolveListDropTarget(lastTouchX, lastTouchY);
+          if (target && (target.kind !== 'list' || target.listId !== list.id)) {
+            target.el.classList.add('is-drop-target');
+          }
+        },
+        { passive: false },
+      );
+      const finishTouchListDrag = (event: TouchEvent): void => {
+        window.clearTimeout(touchTimer);
+        if (draggedListId !== list.id) return;
+        const endTouch = event.changedTouches[0];
+        const dropX = endTouch ? endTouch.clientX : lastTouchX;
+        const dropY = endTouch ? endTouch.clientY : lastTouchY;
+        const target = resolveListDropTarget(dropX, dropY);
+        draggedListId = null;
+        btn.classList.remove('is-dragging');
+        clearDropTargets();
+        window.setTimeout(() => {
+          suppressNextListClick = false;
+        }, 300);
+        if (!target) return;
+        if (target.kind === 'list' && target.listId !== list.id) {
+          if (store.moveListOrder(list.id, target.listId)) render();
+        } else if (target.kind === 'folder') {
+          if (store.setListFolder(list.id, target.folderName)) render();
+        } else if (target.kind === 'root') {
+          if (store.setListFolder(list.id, null)) render();
+        }
+      };
+      btn.addEventListener('touchend', finishTouchListDrag);
+      btn.addEventListener('touchcancel', finishTouchListDrag);
+
       const labelWrap = document.createElement('span');
       labelWrap.className = 'nav-label-wrap';
+      const listDragHandle = createDragHandleElement();
       const glyphSpan = document.createElement('span');
       glyphSpan.className = 'nav-glyph';
       glyphSpan.setAttribute('aria-hidden', 'true');
@@ -1208,7 +1425,7 @@ function initApp(): void {
       labelSpan.textContent = list.shared
         ? `${list.title} (${t(store.locale, 'list.sharedBadge')})`
         : list.title;
-      labelWrap.append(glyphSpan, labelSpan);
+      labelWrap.append(listDragHandle, glyphSpan, labelSpan);
 
       const countSpan = document.createElement('span');
       countSpan.className = 'nav-count';
@@ -1218,6 +1435,10 @@ function initApp(): void {
 
       btn.append(labelWrap, countSpan);
       btn.addEventListener('click', () => {
+        if (suppressNextListClick) {
+          suppressNextListClick = false;
+          return;
+        }
         activeView = 'lists';
         activeListId = list.id;
         closeMobileDrawer();
@@ -1244,6 +1465,7 @@ function initApp(): void {
       details.open = true;
       const summary = document.createElement('summary');
       summary.className = 'list-folder-summary';
+      summary.dataset.folderName = folderName;
       summary.textContent = folderName;
       summary.addEventListener('dragover', (event) => {
         if (draggedListId) {

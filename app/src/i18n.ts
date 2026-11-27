@@ -40,7 +40,7 @@ export const TRANSLATIONS = {
       'Switch seamlessly from Wunderlist or Microsoft To Do via JSON or CSV import under Settings → Sync & Import. Deleted tasks and lists remain recoverable in Trash for 7 days.',
     'help.tipsTitle': 'Tips, #Tags & Folders',
     'help.tipsBody':
-      'Type #tags in a task title to filter quickly · Click any task for steps, reminder, recurrence & notes · Group lists into folders via the folder button, edit dialog, or sidebar drag & drop, and sort tasks or lists anytime.',
+      'Type #tags in a title to filter · Tap any task for steps, reminder, recurrence & notes · Group lists into folders via the folder icon (next to New list) or the edit pencil (top right) · Drag tasks and custom lists by their ⋮⋮ handle to reorder.',
     'legal.title': 'Legal & Privacy Policy',
     'legal.tabImprint': 'Imprint',
     'legal.tabPrivacy': 'Privacy',
@@ -197,7 +197,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.33 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.34 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -280,7 +280,7 @@ export const TRANSLATIONS = {
       'Wechsle nahtlos von Wunderlist oder Microsoft To Do per JSON-/CSV-Import unter Einstellungen → Sync & Import. Gelöschte Aufgaben und Listen bleiben 7 Tage im Papierkorb wiederherstellbar.',
     'help.tipsTitle': 'Tipps, #Tags & Ordner',
     'help.tipsBody':
-      'Tippe #tags in den Titel zum schnellen Filtern · Klicke auf eine Aufgabe für Teilschritte, Erinnerung, Wiederholung & Notizen · Gruppiere Listen über das Ordner-Symbol, den Bearbeiten-Dialog oder per Ziehen in der Seitenleiste und sortiere Aufgaben oder Listen jederzeit.',
+      'Tippe #tags in den Titel zum Filtern · Tippe auf eine Aufgabe für Schritte, Erinnerung, Wiederholung & Notizen · Eigene Listen über das Ordner-Symbol (neben Neue Liste) oder das Stift-Symbol (oben rechts) in Ordner gruppieren · Aufgaben und eigene Listen am ⋮⋮-Griff ziehen, um die Reihenfolge zu ändern.',
     'legal.title': 'Rechtliches & Datenschutz',
     'legal.tabImprint': 'Impressum',
     'legal.tabPrivacy': 'Datenschutz',
@@ -438,7 +438,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.33 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.34 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',
