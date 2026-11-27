@@ -61,6 +61,10 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
   assert.match(t('en', 'help.step4Body'), /7 days/i);
   assert.match(t('de', 'help.tipsBody'), /#tags.*Ordner/i);
   assert.match(t('en', 'help.tipsBody'), /#tags.*folders/i);
+  assert.ok(t('de', 'search.toggle').length > 0);
+  assert.ok(t('en', 'search.toggle').length > 0);
+  assert.ok(t('de', 'search.createFromQuery').includes('{query}'));
+  assert.ok(t('en', 'search.createFromQuery').includes('{query}'));
 });
 
 test('normalizeServerUrl defaults to official API and validates self-hosted URLs', () => {
@@ -637,7 +641,12 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="settingsTelemetryCheckbox"/);
   assert.match(html, /id="settingsSyncEnabledCheckbox"/);
   assert.match(html, /id="deleteWorkspaceBtn"/);
+  assert.match(html, /id="toggleSearchBtn"/);
+  assert.match(html, /id="searchRow"[^>]*hidden/);
   assert.match(html, /id="taskSearchInput"/);
+  assert.match(html, /class="quick-add-plus-icon"/);
+  assert.match(html, /id="emptySearchRescueRow"/);
+  assert.match(html, /id="createFromSearchBtn"/);
   assert.match(html, /id="detailListSelect"/);
   assert.match(html, /id="joinSharedListForm"/);
   assert.match(html, /id="joinSharedListInput"/);

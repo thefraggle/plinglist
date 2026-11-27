@@ -524,6 +524,12 @@ button[data-loading="true"]::after {
   background-color: var(--bg-subtle);
 }
 
+#toggleSearchBtn[aria-pressed="true"] {
+  color: var(--brand);
+  border-color: var(--brand);
+  background-color: var(--bg-subtle);
+}
+
 .btn-icon-danger:hover:not(:disabled),
 .btn-icon-danger:focus-visible {
   color: var(--danger);
@@ -661,14 +667,30 @@ textarea:disabled {
   border-color: var(--brand);
 }
 
-.quick-add-form > input[type="text"] {
+.quick-add-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-left: 0.35rem;
+  min-width: 0;
+}
+
+.quick-add-plus-icon {
+  color: var(--brand);
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.quick-add-input-wrap > input[type="text"] {
+  flex: 1;
+  min-width: 0;
   border: 0;
   background-color: transparent;
-  padding: 0.45rem 0.35rem;
+  padding: 0.45rem 0.25rem;
   min-height: 2.65rem;
 }
 
-.quick-add-form > input[type="text"]:focus-visible {
+.quick-add-input-wrap > input[type="text"]:focus-visible {
   outline: none;
 }
 
@@ -748,7 +770,7 @@ textarea:disabled {
     padding: 0.4rem 0.5rem 0.4rem 0.65rem;
   }
 
-  .quick-add-form > input[type="text"] {
+  .quick-add-input-wrap {
     flex: 1;
   }
 
@@ -988,6 +1010,12 @@ details:not([open])::details-content {
   color: var(--text-muted);
   max-width: 65ch;
   padding: 0.5rem 0.25rem;
+}
+
+.empty-search-rescue {
+  display: flex;
+  align-items: center;
+  padding: 0 0.25rem 0.35rem;
 }
 
 .mobile-tab-bar {

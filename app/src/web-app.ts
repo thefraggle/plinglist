@@ -239,6 +239,7 @@ function initApp(): void {
       ? initialListParam
       : store.getDefaultTasksListId();
   let searchQuery = startupParams.get('q') ?? '';
+  let searchExpanded = Boolean(searchQuery.trim());
   let quickAddStarred = false;
   let editingTaskId: string | null = null;
   let hasSyncedOnce = false;
@@ -256,8 +257,12 @@ function initApp(): void {
   const mobileListsBtn = document.getElementById('mobileListsBtn') as HTMLButtonElement | null;
   const mainViewEl = document.querySelector<HTMLElement>('.main-view');
   const mobileBarEl = document.querySelector<HTMLElement>('.mobile-tab-bar');
+  const searchRowEl = document.getElementById('searchRow') as HTMLElement | null;
+  const toggleSearchBtn = document.getElementById('toggleSearchBtn') as HTMLButtonElement | null;
   const searchInput = document.getElementById('taskSearchInput') as HTMLInputElement | null;
   const clearSearchBtn = document.getElementById('clearSearchBtn') as HTMLButtonElement | null;
+  const emptySearchRescueRow = document.getElementById('emptySearchRescueRow') as HTMLElement | null;
+  const createFromSearchBtn = document.getElementById('createFromSearchBtn') as HTMLButtonElement | null;
   if (searchInput && searchQuery) {
     searchInput.value = searchQuery;
   }
@@ -922,6 +927,7 @@ function initApp(): void {
       tagBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         searchQuery = tag;
+        searchExpanded = true;
         if (searchInput) searchInput.value = tag;
         render();
       });
@@ -1253,6 +1259,9 @@ function initApp(): void {
     suggestionsSection.hidden = activeView !== 'my-day' || suggestions.length === 0;
 
     if (activeView === 'trash') {
+      if (toggleSearchBtn) toggleSearchBtn.hidden = true;
+      if (searchRowEl) searchRowEl.hidden = true;
+      if (emptySearchRescueRow) emptySearchRescueRow.hidden = true;
       viewTitle.textContent = t(store.locale, 'nav.trash');
       viewSubtitle.textContent = t(store.locale, 'trash.subtitle');
       viewSubtitle.hidden = false;
@@ -1325,7 +1334,15 @@ function initApp(): void {
     );
 
     const hasSearch = searchQuery.trim().length > 0;
-    if (clearSearchBtn) clearSearchBtn.hidden = !hasSearch;
+    const showSearch = searchExpanded || hasSearch;
+    if (toggleSearchBtn) {
+      toggleSearchBtn.hidden = false;
+      toggleSearchBtn.setAttribute('aria-expanded', String(showSearch));
+      toggleSearchBtn.setAttribute('aria-pressed', String(showSearch));
+      toggleSearchBtn.title = t(store.locale, 'search.toggle');
+    }
+    if (searchRowEl) searchRowEl.hidden = !showSearch;
+    if (clearSearchBtn) clearSearchBtn.hidden = !showSearch;
     const filteredVisible = filterTasksByQuery(visibleTasks, searchQuery);
 
     const openTasks = sortTasksForView(
@@ -1346,6 +1363,17 @@ function initApp(): void {
     emptyEl.textContent = hasSearch
       ? t(store.locale, 'task.emptySearch')
       : t(store.locale, 'task.emptyView');
+    if (emptySearchRescueRow && createFromSearchBtn) {
+      const canRescueAsTask =
+        hasSearch && openTasks.length === 0 && doneTasks.length === 0 && !isReadOnlyList;
+      emptySearchRescueRow.hidden = !canRescueAsTask;
+      if (canRescueAsTask) {
+        createFromSearchBtn.textContent = t(store.locale, 'search.createFromQuery').replace(
+          '{query}',
+          searchQuery.trim(),
+        );
+      }
+    }
 
     const completedSection = document.getElementById('completedSection') as HTMLElement;
     const completedListEl = document.getElementById('completedTasksList') as HTMLUListElement;
@@ -1559,6 +1587,20 @@ function initApp(): void {
     });
   });
 
+  toggleSearchBtn?.addEventListener('click', () => {
+    if (searchExpanded || searchQuery.trim().length > 0) {
+      window.clearTimeout(searchDebounceTimer);
+      searchQuery = '';
+      searchExpanded = false;
+      if (searchInput) searchInput.value = '';
+      render();
+    } else {
+      searchExpanded = true;
+      render();
+      searchInput?.focus();
+    }
+  });
+
   searchInput?.addEventListener('input', () => {
     window.clearTimeout(searchDebounceTimer);
     searchDebounceTimer = window.setTimeout(() => {
@@ -1567,14 +1609,72 @@ function initApp(): void {
     }, 150);
   });
 
+  searchInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      window.clearTimeout(searchDebounceTimer);
+      searchQuery = '';
+      searchExpanded = false;
+      searchInput.value = '';
+      searchInput.blur();
+      render();
+    }
+  });
+
   clearSearchBtn?.addEventListener('click', () => {
     window.clearTimeout(searchDebounceTimer);
     searchQuery = '';
+    searchExpanded = false;
     if (searchInput) {
       searchInput.value = '';
-      searchInput.focus();
     }
     render();
+  });
+
+  createFromSearchBtn?.addEventListener('click', () => {
+    const title = searchQuery.trim();
+    if (!title) return;
+    const targetListId =
+      activeView === 'lists' ? activeListId : store.getDefaultTasksListId();
+    store.addTask({
+      title,
+      listId: targetListId,
+      starred: activeView === 'starred',
+      myDayDate: activeView === 'my-day' ? getLocalIsoDate() : null,
+      dueDate: activeView === 'planned' ? getLocalIsoDate() : null,
+    });
+    window.clearTimeout(searchDebounceTimer);
+    searchQuery = '';
+    searchExpanded = false;
+    if (searchInput) searchInput.value = '';
+    trackDiagnostic('task_created');
+    render();
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (activeView === 'trash') return;
+    if (document.querySelector('dialog[open]')) return;
+    const isCmdK = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k';
+    const activeEl = document.activeElement;
+    const isTypingInField =
+      activeEl instanceof HTMLInputElement ||
+      activeEl instanceof HTMLTextAreaElement ||
+      activeEl instanceof HTMLSelectElement ||
+      (activeEl instanceof HTMLElement && activeEl.isContentEditable);
+    const isSlash =
+      event.key === '/' &&
+      !isTypingInField &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey;
+    if (isCmdK || isSlash) {
+      event.preventDefault();
+      searchExpanded = true;
+      render();
+      searchInput?.focus();
+      searchInput?.select();
+    }
   });
 
   window.addEventListener('popstate', () => {
@@ -1586,6 +1686,7 @@ function initApp(): void {
       activeListId = l;
     }
     searchQuery = params.get('q') ?? '';
+    searchExpanded = Boolean(searchQuery.trim());
     if (searchInput) searchInput.value = searchQuery;
     render();
   });

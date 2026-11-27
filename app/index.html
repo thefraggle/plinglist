@@ -223,6 +223,21 @@
             </div>
           </div>
           <div class="header-actions">
+            <button
+              type="button"
+              id="toggleSearchBtn"
+              class="btn-icon"
+              aria-expanded="false"
+              aria-pressed="false"
+              aria-controls="searchRow"
+              data-i18n-aria="search.toggle"
+              title="Aufgaben durchsuchen"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </button>
             <label for="viewSortSelect" class="sr-only" data-i18n="sort.label">Sortierung</label>
             <select id="viewSortSelect" class="sort-select">
               <option value="default" data-i18n="sort.default">Standard</option>
@@ -298,7 +313,7 @@
           </details>
         </section>
 
-        <div class="search-row">
+        <div id="searchRow" class="search-row" hidden>
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
@@ -317,23 +332,27 @@
             class="btn-ghost btn-compact"
             data-i18n-aria="search.clear"
             aria-label="Suche leeren"
-            hidden
           >
             ×
           </button>
         </div>
 
         <form id="addTaskForm" class="quick-add-form">
-          <label for="newTaskTitle" class="sr-only" data-i18n="task.addPlaceholder">Aufgabe hinzufügen...</label>
-          <input
-            id="newTaskTitle"
-            type="text"
-            autocomplete="off"
-            maxlength="240"
-            data-i18n-placeholder="task.addPlaceholder"
-            placeholder="Aufgabe hinzufügen..."
-            required
-          />
+          <div class="quick-add-input-wrap">
+            <svg class="quick-add-plus-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <label for="newTaskTitle" class="sr-only" data-i18n="task.addPlaceholder">Aufgabe hinzufügen...</label>
+            <input
+              id="newTaskTitle"
+              type="text"
+              autocomplete="off"
+              maxlength="240"
+              data-i18n-placeholder="task.addPlaceholder"
+              placeholder="Aufgabe hinzufügen..."
+              required
+            />
+          </div>
           <div class="quick-add-controls">
             <label class="date-chip" for="newTaskDueDate">
               <svg class="date-chip-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -361,6 +380,9 @@
 
         <ul id="activeTasksList" class="task-list"></ul>
         <p id="emptyStateText" class="empty-state" hidden data-i18n="task.emptyView"></p>
+        <div id="emptySearchRescueRow" class="empty-search-rescue" hidden>
+          <button type="button" id="createFromSearchBtn" class="btn-secondary btn-compact"></button>
+        </div>
 
         <details id="completedSection" class="completed-section" hidden>
           <summary>

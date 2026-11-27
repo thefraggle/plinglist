@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.32] - 2026-11-27
+
+### Deutsch
+- Klarere Trennung von Suche und neuer Aufgabe: Die Suchleiste öffnet sich gezielt über das Lupen-Symbol oben rechts (oder Kurzbefehl), das Eingabefeld zeigt ein klares Plus-Symbol, und bei 0 Suchtreffern lässt sich der Suchtext mit einem Klick als neue Aufgabe übernehmen.
+
+### English
+- Clearer separation between search and adding tasks: Search now expands cleanly via the magnifying glass button at the top right (or shortcut), the task input shows a clear plus icon, and zero-result searches offer a 1-click option to add the text as a new task.
+
 ## [0.1.31] - 2026-11-27
 
 ### Deutsch
