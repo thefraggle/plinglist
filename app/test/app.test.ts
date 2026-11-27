@@ -59,6 +59,10 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
   assert.match(t('en', 'help.step2Body'), /@name/i);
   assert.match(t('de', 'help.step4Body'), /7 Tage/i);
   assert.match(t('en', 'help.step4Body'), /7 days/i);
+  assert.match(t('de', 'help.step4Body'), /outlook\.live\.com.*account\.microsoft\.com\/privacy/i);
+  assert.match(t('en', 'help.step4Body'), /outlook\.live\.com.*account\.microsoft\.com\/privacy/i);
+  assert.match(t('de', 'importer.description'), /outlook\.live\.com.*account\.microsoft\.com\/privacy/i);
+  assert.match(t('en', 'importer.description'), /outlook\.live\.com.*account\.microsoft\.com\/privacy/i);
   assert.match(t('de', 'help.tipsBody'), /#tags.*Ordner/i);
   assert.match(t('en', 'help.tipsBody'), /#tags.*folders/i);
   assert.ok(t('de', 'search.toggle').length > 0);
@@ -1514,4 +1518,8 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(webAppTs, /allowWhileIdle:\s*true/);
   assert.match(webAppTs, /showNotification\(/);
   assert.match(webAppTs, /createDragHandleElement/);
+  assert.match(
+    webAppTs,
+    /function createTaskElement\([\s\S]*?const readOnly = store\.isReadOnlyList\(task\.listId\);\s*const today = getLocalIsoDate\(\);\s*const canDragTask = !isSuggestion && !readOnly && !task\.completed;/,
+  );
 });

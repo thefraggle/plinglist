@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.35] - 2026-11-27
+
+### Deutsch
+- Fehler behoben, durch den neu angelegte Aufgaben in „Mein Tag“ und anderen Ansichten zwar im Zähler der Seitenleiste gezählt, aber in der Hauptansicht nicht sofort eingeblendet wurden.
+- Direkt im Import-Dialog und in der Schnellstart-Hilfe ergänzt, wie Aufgaben aus Microsoft To Do als CSV- oder JSON-Datei exportiert werden.
+
+### English
+- Fixed an issue where newly added tasks incremented the sidebar counters in "My Day" and other views without immediately appearing in the main task list.
+- Added a concise step-by-step hint inside the Import dialog and Quickstart guide on how to export tasks from Microsoft To Do as a CSV or JSON file.
+
 ## [0.1.34] - 2026-11-27
 
 ### Deutsch

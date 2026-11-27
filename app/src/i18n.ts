@@ -37,7 +37,7 @@ export const TRANSLATIONS = {
       'Copy the "Pairing link" under Settings → Sync & Import and open it on your second device (or paste it into the Sync Key field there) to keep all lists in sync privately.',
     'help.step4Title': '4. 1-Click Import & 7-Day Trash',
     'help.step4Body':
-      'Switch seamlessly from Wunderlist or Microsoft To Do via JSON or CSV import under Settings → Sync & Import. Deleted tasks and lists remain recoverable in Trash for 7 days.',
+      'Switch seamlessly from Wunderlist or Microsoft To Do via JSON or CSV import under Settings → Sync & Import (export CSV via outlook.live.com → To Do or JSON via account.microsoft.com/privacy). Deleted tasks and lists remain recoverable in Trash for 7 days.',
     'help.tipsTitle': 'Tips, #Tags & Folders',
     'help.tipsBody':
       'Type #tags in a title to filter · Tap any task for steps, reminder, recurrence & notes · Group lists into folders via the folder icon (next to New list) or the edit pencil (top right) · Drag tasks and custom lists by their ⋮⋮ handle to reorder.',
@@ -159,7 +159,7 @@ export const TRANSLATIONS = {
     'share.joinBtn': 'Join',
     'importer.title': 'Import from Wunderlist or Microsoft To Do',
     'importer.description':
-      'Select a JSON or CSV export file or paste exported JSON/CSV below. Lists, subtasks, due dates, stars, and notes are imported locally.',
+      'Select a JSON or CSV export file or paste it below. How to export from Microsoft To Do: Open outlook.live.com → To Do / Tasks to export a CSV file, or request your JSON archive at account.microsoft.com/privacy (Download your data). Lists, subtasks, due dates, stars, and notes are imported locally.',
     'importer.fileLabel': 'Choose JSON or CSV file',
     'importer.pasteLabel': 'Or paste JSON / CSV',
     'importer.loadSample': 'Sample data',
@@ -197,7 +197,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.34 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.35 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -277,7 +277,7 @@ export const TRANSLATIONS = {
       'Kopiere unter Einstellungen → Sync & Import den „Koppellink“ und öffne ihn auf deinem Zweitgerät (oder füge ihn dort ins Feld Sync-Key ein), um alle Listen privat synchron zu halten.',
     'help.step4Title': '4. 1-Klick-Import & 7-Tage-Papierkorb',
     'help.step4Body':
-      'Wechsle nahtlos von Wunderlist oder Microsoft To Do per JSON-/CSV-Import unter Einstellungen → Sync & Import. Gelöschte Aufgaben und Listen bleiben 7 Tage im Papierkorb wiederherstellbar.',
+      'Wechsle nahtlos von Wunderlist oder Microsoft To Do per JSON-/CSV-Import unter Einstellungen → Sync & Import (CSV-Export über outlook.live.com → To Do oder JSON über account.microsoft.com/privacy). Gelöschte Aufgaben und Listen bleiben 7 Tage im Papierkorb wiederherstellbar.',
     'help.tipsTitle': 'Tipps, #Tags & Ordner',
     'help.tipsBody':
       'Tippe #tags in den Titel zum Filtern · Tippe auf eine Aufgabe für Schritte, Erinnerung, Wiederholung & Notizen · Eigene Listen über das Ordner-Symbol (neben Neue Liste) oder das Stift-Symbol (oben rechts) in Ordner gruppieren · Aufgaben und eigene Listen am ⋮⋮-Griff ziehen, um die Reihenfolge zu ändern.',
@@ -400,7 +400,7 @@ export const TRANSLATIONS = {
     'share.joinBtn': 'Beitreten',
     'importer.title': 'Aus Wunderlist oder Microsoft To Do importieren',
     'importer.description':
-      'Wähle eine JSON- oder CSV-Exportdatei oder füge den Export direkt ein. Listen, Teilschritte, Fälligkeiten, Sterne und Notizen werden lokal übernommen.',
+      'Wähle eine JSON- oder CSV-Exportdatei oder füge den Export unten ein. So exportierst du aus Microsoft To Do: Öffne outlook.live.com → To Do / Aufgaben für einen CSV-Export oder lade dein JSON-Archiv unter account.microsoft.com/privacy (Daten herunterladen) herunter. Listen, Teilschritte, Fälligkeiten, Sterne und Notizen werden lokal übernommen.',
     'importer.fileLabel': 'JSON- oder CSV-Datei wählen',
     'importer.pasteLabel': 'Oder JSON / CSV einfügen',
     'importer.loadSample': 'Demo-Daten',
@@ -438,7 +438,7 @@ export const TRANSLATIONS = {
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.34 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.35 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

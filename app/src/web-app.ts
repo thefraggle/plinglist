@@ -835,6 +835,8 @@ function initApp(): void {
     orderedVisibleIds?: string[],
   ): HTMLLIElement {
     const li = document.createElement('li');
+    const readOnly = store.isReadOnlyList(task.listId);
+    const today = getLocalIsoDate();
     const canDragTask = !isSuggestion && !readOnly && !task.completed;
     li.className = `task-row${task.completed ? ' is-completed' : ''}${canDragTask ? ' is-draggable' : ''}`;
     if (canDragTask) {
