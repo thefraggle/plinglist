@@ -1475,6 +1475,8 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(androidWorkflow, /android\.permission\.POST_NOTIFICATIONS/);
   assert.match(androidWorkflow, /android\.permission\.RECEIVE_BOOT_COMPLETED/);
   assert.doesNotMatch(androidWorkflow, /USE_EXACT_ALARM|SCHEDULE_EXACT_ALARM/);
+  assert.match(androidWorkflow, /sync_store_listings:/);
+  assert.match(androidWorkflow, /SYNC_STORE_LISTINGS:/);
 
   const iosWorkflow = fs.readFileSync(
     path.resolve('.github/workflows/build-ios-macos.yml'),

@@ -30,6 +30,11 @@ on:
           - alpha
           - beta
           - production
+      sync_store_listings:
+        description: 'Sync Google Play Store listings & graphics (leave false for AAB-only release; automatically true for metadata-only)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -501,6 +506,7 @@ jobs:
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           PLAY_TRACK: ${{ inputs.play_track || 'alpha' }}
+          SYNC_STORE_LISTINGS: ${{ inputs.target_action == 'metadata-only' || inputs.sync_store_listings == true }}
         run: |
           if [ -z "$SERVICE_ACCOUNT_JSON" ]; then
             echo "::error::Missing SERVICE_ACCOUNT_JSON (or GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) secret!"
