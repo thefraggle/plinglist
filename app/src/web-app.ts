@@ -2284,16 +2284,18 @@ function initApp(): void {
       }
     }
 
-    let keyChanged = false;
+    let shouldPairReset = false;
     if (syncKeyInput) {
-      const candidate = extractSyncKeyFromInput(syncKeyInput.value);
-      if (candidate !== store.syncKey) {
+      const rawVal = syncKeyInput.value.trim();
+      const candidate = extractSyncKeyFromInput(rawVal);
+      const wasUnlocked = !syncKeyInput.readOnly || /[/:?=\s]/.test(rawVal);
+      if (candidate !== store.syncKey || wasUnlocked) {
         try {
-          store.setSyncKey(syncKeyInput.value, { forceReset: true });
+          store.setSyncKey(rawVal, { forceReset: true });
           syncKeyInput.value = store.syncKey;
           syncKeyInput.readOnly = true;
           if (editBtn) editBtn.hidden = false;
-          keyChanged = true;
+          shouldPairReset = true;
         } catch {
           if (errEl) {
             selectSettingsTab('sync');
@@ -2312,19 +2314,24 @@ function initApp(): void {
     }
     try {
       store.forceFullSync();
-      if (keyChanged) {
-        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
-        if (res.synced) {
-          hasSyncedOnce = true;
+      const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
+      if (res.synced) {
+        hasSyncedOnce = true;
+        deviceLimitNotified = false;
+        if (shouldPairReset || res.pulledTasks > 0) {
           selectBestViewAfterPairing();
-          showToast(t(store.locale, 'toast.devicePaired'));
-        } else {
-          showToast(t(store.locale, 'toast.pairFailed'));
         }
+        if (shouldPairReset) {
+          showToast(t(store.locale, 'toast.devicePaired'));
+          trackDiagnostic('device_paired');
+        }
+        render();
+      } else if (shouldPairReset) {
+        showToast(t(store.locale, 'toast.pairFailed'));
         trackDiagnostic('device_paired');
         render();
-      } else {
-        await runSyncNow();
+      } else if (store.lastSyncErrorCode === 'DEVICE_LIMIT_REACHED') {
+        showToast(t(store.locale, 'toast.deviceLimitReached'));
       }
       updateSyncLabels();
     } finally {
@@ -2406,10 +2413,22 @@ function initApp(): void {
         (document.getElementById('settingsTelemetryCheckbox') as HTMLInputElement).checked,
     };
 
+    const syncKeyInputEl = document.getElementById('settingsSyncKeyInput') as HTMLInputElement | null;
+    const editSyncKeyBtnEl = document.getElementById('editSettingsSyncKeyBtn') as HTMLButtonElement | null;
+    const wasEditingSyncKey =
+      Boolean(syncKeyInputEl && !syncKeyInputEl.readOnly) || /[/:?=\s]/.test(nextSyncKey);
     const prevSyncKey = store.syncKey;
     let keyChanged = false;
     try {
-      keyChanged = store.setSyncKey(nextSyncKey) !== prevSyncKey;
+      const appliedKey = store.setSyncKey(nextSyncKey, { forceReset: wasEditingSyncKey });
+      keyChanged = appliedKey !== prevSyncKey || wasEditingSyncKey;
+      if (syncKeyInputEl) {
+        syncKeyInputEl.value = appliedKey;
+        syncKeyInputEl.readOnly = true;
+      }
+      if (editSyncKeyBtnEl) {
+        editSyncKeyBtnEl.hidden = false;
+      }
     } catch {
       selectSettingsTab('sync');
       errEl.textContent = t(store.locale, 'settings.syncKeyInvalid');
@@ -2424,15 +2443,17 @@ function initApp(): void {
       store.setPreferences(nextPrefs);
       syncTelemetryRuntime();
       errEl.hidden = true;
+      window.clearTimeout(syncDebounceTimer);
       await closeTopLayer(settingsDialog);
       if (keyChanged) {
         const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
         if (res.synced) {
           hasSyncedOnce = true;
+          deviceLimitNotified = false;
           selectBestViewAfterPairing();
           showToast(t(store.locale, 'toast.devicePaired'));
         } else {
-          showToast(t(store.locale, 'toast.settingsSaved'));
+          showToast(t(store.locale, 'toast.pairFailed'));
         }
         trackDiagnostic('device_paired');
         render();

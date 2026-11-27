@@ -447,7 +447,7 @@ export class InMemorySyncRepository implements SyncRepository {
         callerKey,
         callerUserId,
         isPro,
-        Boolean(request.replaceOldestDevice),
+        request.replaceOldestDevice !== false,
         nowIso,
       );
     }

@@ -350,7 +350,7 @@ export class SqliteSyncRepository implements SyncRepository {
           callerKey,
           callerUserId,
           isPro,
-          Boolean(request.replaceOldestDevice),
+          request.replaceOldestDevice !== false,
           nowIso,
         );
         if (request.leaveListIds?.length) {

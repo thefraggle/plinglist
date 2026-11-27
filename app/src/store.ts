@@ -1495,7 +1495,7 @@ export class PlinglistStore {
           clientLists,
           clientTasks,
           sinceHlc: sendFullSnapshot ? null : this.cursorHlc,
-          ...(options?.replaceOldestDevice ? { replaceOldestDevice: true } : {}),
+          replaceOldestDevice: options?.replaceOldestDevice ?? true,
           ...(pendingLeaveListIds.length > 0 ? { leaveListIds: pendingLeaveListIds } : {}),
         }),
       });

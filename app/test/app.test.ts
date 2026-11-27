@@ -1160,6 +1160,20 @@ test('setSyncKey via pairing URL cleanly replaces existing throwaway session wit
     assert.equal(androidApp.tasks.some((t) => t.title === 'Temp Crash Task'), false);
     await androidApp.syncWithServer();
     assert.ok(androidApp.tasks.some((t) => t.title === 'Web Task 1'));
+
+    // Pairing a 3rd device (macOS) automatically replaces the oldest slot without failing
+    const macApp = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de', serverUrl });
+    macApp.setSyncKey(webApp.getPairingUrl(OFFICIAL_APP_ORIGIN));
+    const macSync = await macApp.syncWithServer();
+    assert.equal(macSync.synced, true);
+    assert.equal(macApp.lastSyncErrorCode, null);
+    assert.ok(macApp.tasks.some((t) => t.title === 'Web Task 1'));
+    assert.ok(macApp.tasks.some((t) => t.title === 'Steuerbelege sortieren'));
+
+    // Evicted webApp automatically rotates back in on restart/next sync without DEVICE_LIMIT_REACHED
+    const evictedRestartSync = await webApp.syncWithServer();
+    assert.equal(evictedRestartSync.synced, true);
+    assert.equal(webApp.lastSyncErrorCode, null);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),

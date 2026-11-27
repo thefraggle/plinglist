@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.31] - 2026-11-27
+
+### Deutsch
+- Zuverlässigeres Koppeln mehrerer Geräte: Beim erneuten Koppeln oder Neustart auf einem weiteren Gerät wird automatisch der älteste Geräteplatz freigegeben, damit alle Listen und Aufgaben sofort wieder synchronisieren.
+
+### English
+- More reliable multi-device pairing: Pairing another device or restarting an already paired app automatically rotates the oldest device slot so all lists and tasks sync right away.
+
 ## [0.1.30] - 2026-11-26
 
 ### Deutsch

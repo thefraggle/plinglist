@@ -854,13 +854,14 @@ test('server enforces 2-device free cap with reinstall slot replacement, 1-share
     });
     assert.equal(dev2.status, 200);
 
-    // 3rd concurrent device without replaceOldestDevice is blocked with 403 DEVICE_LIMIT_REACHED
+    // 3rd concurrent device with explicit replaceOldestDevice: false is blocked with 403 DEVICE_LIMIT_REACHED
     const dev3Blocked = await fetch(`${baseUrl}/api/v1/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: 'dev-3',
         syncKey,
+        replaceOldestDevice: false,
         listIds: [],
         clientLists: [],
         clientTasks: [],
@@ -869,28 +870,30 @@ test('server enforces 2-device free cap with reinstall slot replacement, 1-share
     assert.equal(dev3Blocked.status, 403);
     assert.equal(((await dev3Blocked.json()) as { error: string }).error, 'DEVICE_LIMIT_REACHED');
 
-    // Reinstalled device pairing with replaceOldestDevice: true succeeds and replaces oldest slot
+    // Reinstalled / newly paired device omitting replaceOldestDevice (or passing true) automatically replaces oldest slot
     const dev3Paired = await fetch(`${baseUrl}/api/v1/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: 'dev-3',
         syncKey,
-        replaceOldestDevice: true,
         listIds: [],
         clientLists: [],
         clientTasks: [],
       }),
     });
     assert.equal(dev3Paired.status, 200);
+    const dev3Body = (await dev3Paired.json()) as { deviceCount: number };
+    assert.equal(dev3Body.deviceCount, 2);
 
-    // Replaced dev-1 is now blocked with DEVICE_LIMIT_REACHED
+    // Replaced dev-1 with explicit replaceOldestDevice: false is now blocked with DEVICE_LIMIT_REACHED
     const dev1AfterReplace = await fetch(`${baseUrl}/api/v1/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: 'dev-1',
         syncKey,
+        replaceOldestDevice: false,
         listIds: [],
         clientLists: [],
         clientTasks: [],
