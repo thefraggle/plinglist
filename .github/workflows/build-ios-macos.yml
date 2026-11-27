@@ -35,6 +35,11 @@ on:
         required: true
         default: true
         type: boolean
+      sync_appstore_metadata:
+        description: 'Sync App Store Connect version/screenshots/attached build (leave false for TestFlight-only while a build is in review)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -173,9 +178,16 @@ jobs:
           fi
           sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = ${APP_VERSION};/g" "$PBXPROJ"
           sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = ${INITIAL_BUILD};/g" "$PBXPROJ"
+          sed -i '' "s/PRODUCT_NAME = .*;/PRODUCT_NAME = Plinglist;/g" "$PBXPROJ" || true
           sed -i '' "s/SUPPORTS_MACCATALYST = NO;/SUPPORTS_MACCATALYST = YES;/g" "$PBXPROJ" || true
           if ! grep -q "SUPPORTS_MACCATALYST" "$PBXPROJ"; then
             sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = /DEVELOPMENT_TEAM = ${APPLE_TEAM_ID};\n\t\t\t\tDERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;\n\t\t\t\tSUPPORTS_MACCATALYST = YES;\n\t\t\t\tSUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = /g" "$PBXPROJ"
+          fi
+          if ! grep -q "PRODUCT_NAME = Plinglist;" "$PBXPROJ"; then
+            sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = /PRODUCT_NAME = Plinglist;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = /g" "$PBXPROJ"
+          fi
+          if ! grep -q "INFOPLIST_KEY_CFBundleDisplayName" "$PBXPROJ"; then
+            sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = /INFOPLIST_KEY_CFBundleDisplayName = Plinglist;\n\t\t\t\tINFOPLIST_KEY_CFBundleName = Plinglist;\n\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = /g" "$PBXPROJ"
           fi
 
           /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$INFO_PLIST" 2>/dev/null || true
@@ -195,6 +207,7 @@ jobs:
           if (fs.existsSync(appDelegatePath)) {
             const swiftLines = [
               'import UIKit',
+              'import WebKit',
               'import Capacitor',
               '',
               '@UIApplicationMain',
@@ -223,6 +236,18 @@ jobs:
               '            bridgeVC.webView?.isOpaque = false',
               '            bridgeVC.webView?.backgroundColor = canvasColor',
               '            bridgeVC.webView?.scrollView.backgroundColor = canvasColor',
+              '            if #available(iOS 14.0, *) {',
+              '                var isMacHost = false',
+              '                #if targetEnvironment(macCatalyst)',
+              '                isMacHost = true',
+              '                #endif',
+              '                if !isMacHost && ProcessInfo.processInfo.isiOSAppOnMac {',
+              '                    isMacHost = true',
+              '                }',
+              '                if isMacHost {',
+              '                    bridgeVC.webView?.pageZoom = 1.15',
+              '                }',
+              '            }',
               '        }',
               '    }',
               '',
@@ -943,7 +968,7 @@ jobs:
           fi
 
       - name: Sync App Store Connect Version, Texts & Screenshots
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.upload_to_appstore }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (inputs.target_platform == 'metadata-only' || inputs.sync_appstore_metadata) }}
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

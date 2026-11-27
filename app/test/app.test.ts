@@ -583,6 +583,46 @@ test('PlinglistStore supports list folders, list duplication, clearing completed
   assert.equal(dupTasks[1].position, 0);
   assert.equal(dupTasks[0].position, 1);
   assert.ok(wt2.id);
+
+  const slashList = store.addList('OPM / Credera', null);
+  assert.equal(slashList.title, 'OPM / Credera');
+  assert.equal(slashList.folder, null);
+
+  const extraList = store.addList('Private', null);
+  const defaultTasksId = store.getDefaultTasksListId();
+  assert.equal(store.moveListOrder(slashList.id, defaultTasksId), false);
+  assert.equal(store.moveListOrder(defaultTasksId, slashList.id), false);
+  assert.equal(store.moveListOrder(extraList.id, slashList.id), true);
+
+  const customOrder = store.getCustomLists().map((l) => l.id);
+  assert.ok(customOrder.indexOf(extraList.id) < customOrder.indexOf(slashList.id));
+
+  assert.equal(store.setListFolder(slashList.id, 'Clients')?.folder, 'Clients');
+  assert.equal(store.setListFolder(slashList.id, null)?.folder, null);
+  assert.equal(store.setListFolder(defaultTasksId, 'Work'), null);
+
+  // Touch/button list reordering within siblings
+  assert.equal(store.nudgeListOrder(slashList.id, 'up'), true);
+  assert.equal(store.nudgeListOrder(defaultTasksId, 'up'), false);
+
+  // Free tier allows sharing 1 own list with readOnly option
+  const roStore = new PlinglistStore({ storage: createMemoryStorage(), locale: 'de' });
+  const freeRoList = roStore.addList('Nur Lesen', null);
+  const { inviteUrl: freeRoUrl } = roStore.shareList(freeRoList.id, 'https://plinglist.app', {
+    readOnly: true,
+  });
+  assert.match(freeRoUrl, /\?join=inv-ro-/);
+
+  // purgeExpiredTrash persists scrubbed state when items expire
+  const trashStorage = createMemoryStorage();
+  const trashStore = new PlinglistStore({ storage: trashStorage, locale: 'de' });
+  const tempList = trashStore.addList('Alt', null);
+  const oldTask = trashStore.addTask({ title: 'Veraltet', listId: tempList.id });
+  trashStore.deleteTask(oldTask.id);
+  const futureMs = Date.now() + 8 * 86_400_000;
+  assert.equal(trashStore.purgeExpiredTrash(futureMs), 1);
+  const reloadedTrash = new PlinglistStore({ storage: trashStorage, locale: 'de' });
+  assert.equal(reloadedTrash.tasks.find((t) => t.id === oldTask.id)?.title, '');
 });
 
 test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-origin in web context', () => {
@@ -1358,11 +1398,16 @@ test('free tier enforces 1 own shared list while allowing unlimited foreign join
     assert.match(roUrl, /\?join=inv-ro-/);
     assert.equal((await freeUser.syncWithServer()).synced, true);
 
-    // Viewer joining via readonly link cannot mutate locally or on server
+    // Viewer joining via readonly link cannot mutate locally or on server,
+    // and moving a foreign list locally keeps its HLC untouched so owner order is preserved
     const viewer = new PlinglistStore({ storage: createMemoryStorage(), serverUrl });
     const joinedRo = await viewer.joinSharedListByToken(roUrl);
     assert.equal(joinedRo.accessRole, 'viewer');
     assert.throws(() => viewer.addTask({ title: 'Hack', listId: joinedRo.id }));
+    const foreignOrderList = viewer.addList('Eigene Liste', null);
+    const hlcBeforeMove = joinedRo.hlc;
+    assert.equal(viewer.moveListOrder(joinedRo.id, foreignOrderList.id), true);
+    assert.equal(viewer.lists.find((l) => l.id === joinedRo.id)?.hlc, hlcBeforeMove);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve())),
@@ -1438,8 +1483,21 @@ test('Android, iOS, and web theming preserve status bar contrast and safe-area b
   assert.match(iosWorkflow, /Splash\.imageset/);
   assert.match(iosWorkflow, /242\.0\s*\/\s*255\.0/);
   assert.match(iosWorkflow, /19\.0\s*\/\s*255\.0/);
+  assert.match(iosWorkflow, /PRODUCT_NAME = Plinglist;/);
+  assert.match(iosWorkflow, /INFOPLIST_KEY_CFBundleDisplayName = Plinglist;/);
+  assert.match(iosWorkflow, /INFOPLIST_KEY_CFBundleName = Plinglist;/);
+  assert.match(iosWorkflow, /targetEnvironment\(macCatalyst\)/);
+  assert.match(iosWorkflow, /isiOSAppOnMac/);
+  assert.match(iosWorkflow, /pageZoom = 1\.15/);
   assert.doesNotMatch(iosWorkflow, /npm install --no-save[^\n]*@capacitor\/local-notifications/);
 
+  assert.match(stylesCss, /\.nav-item\s*\{[^}]*font-size:\s*0\.98rem;/s);
+  assert.match(stylesCss, /\.task-title\s*\{[^}]*font-size:\s*1\.05rem;/s);
+  assert.match(stylesCss, /\.task-meta\s*\{[^}]*font-size:\s*0\.85rem;/s);
+  assert.doesNotMatch(
+    stylesCss,
+    /@media\s*\(min-width:\s*768px\)\s*\{\s*input\[type="text"\][^}]*font-size:\s*0\.94rem;/s,
+  );
   assert.match(stylesCss, /select\s*\{[^}]*appearance:\s*none;/s);
   assert.match(stylesCss, /select\s*\{[^}]*background-image:\s*url\("data:image\/svg\+xml/s);
   assert.match(stylesCss, /select option\s*\{[^}]*background-color:\s*var\(--bg-surface\)[^}]*color:\s*var\(--text-primary\)/s);

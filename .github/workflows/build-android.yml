@@ -23,7 +23,7 @@ on:
       play_track:
         description: 'Target Google Play track'
         required: true
-        default: 'internal'
+        default: 'alpha'
         type: choice
         options:
           - internal
@@ -500,7 +500,7 @@ jobs:
         if: ${{ inputs.target_action != 'apk-only' }}
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON || secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          PLAY_TRACK: ${{ inputs.play_track || 'internal' }}
+          PLAY_TRACK: ${{ inputs.play_track || 'alpha' }}
         run: |
           if [ -z "$SERVICE_ACCOUNT_JSON" ]; then
             echo "::error::Missing SERVICE_ACCOUNT_JSON (or GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) secret!"

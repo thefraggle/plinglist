@@ -241,7 +241,7 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.94rem;
+  font-size: 0.98rem;
   font-weight: 500;
   cursor: pointer;
   text-align: left;
@@ -579,18 +579,6 @@ select option {
   color: var(--text-primary);
 }
 
-@media (min-width: 768px) {
-  input[type="text"],
-  input[type="search"],
-  input[type="date"],
-  input[type="datetime-local"],
-  input[type="url"],
-  select,
-  textarea {
-    font-size: 0.94rem;
-  }
-}
-
 @media (hover: hover) {
   input[type="text"]:hover:not(:disabled):not([readonly]),
   input[type="search"]:hover:not(:disabled),
@@ -784,9 +772,31 @@ textarea:disabled {
   }
 }
 
-.inline-add-form {
+.inline-add-form,
+.inline-add-row {
   display: flex;
   gap: 0.4rem;
+}
+
+.inline-add-row > input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.new-list-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.new-list-folder-row {
+  display: flex;
+}
+
+#toggleNewListFolderBtn[aria-pressed="true"] {
+  color: var(--brand);
+  border-color: var(--brand);
+  background-color: var(--bg-subtle);
 }
 
 .task-list {
@@ -863,6 +873,7 @@ textarea:disabled {
 }
 
 .task-title {
+  font-size: 1.05rem;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -873,7 +884,7 @@ textarea:disabled {
 }
 
 .task-meta {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
   display: flex;
   flex-wrap: wrap;
@@ -1594,8 +1605,18 @@ a.link-inline:hover {
   margin-top: 0.35rem;
 }
 
-.task-row.is-dragging {
+.task-row.is-dragging,
+.nav-item.is-dragging {
   opacity: 0.55;
+}
+
+.nav-item.is-drop-target,
+.list-folder-summary.is-drop-target,
+.section-label.is-drop-target {
+  outline: 2px dashed var(--brand);
+  outline-offset: -2px;
+  background-color: var(--bg-subtle);
+  border-radius: 0.5rem;
 }
 
 .task-main-col {

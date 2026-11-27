@@ -232,6 +232,8 @@ function initApp(): void {
   let activePlannedFilter: PlannedFilterId = 'all';
   let activeSortMode: TaskSortMode = 'default';
   let draggedTaskId: string | null = null;
+  let draggedListId: string | null = null;
+  let newListFolderOpen = false;
   let lastScheduledNotificationsSig = '';
   const initialListParam = startupParams.get('list')?.trim();
   let activeListId =
@@ -246,6 +248,7 @@ function initApp(): void {
   let syncInFlight = false;
   let syncQueued = false;
   let deviceLimitNotified = false;
+  let storageErrorNotified = false;
   let syncDebounceTimer: number | undefined;
   let searchDebounceTimer: number | undefined;
   let lastAppliedLocale: string | null = null;
@@ -1024,6 +1027,14 @@ function initApp(): void {
 
   function render(): void {
     applyTranslations();
+    if (store.lastStorageError) {
+      if (!storageErrorNotified) {
+        storageErrorNotified = true;
+        showToast(t(store.locale, 'toast.storageWarning'));
+      }
+    } else {
+      storageErrorNotified = false;
+    }
     const today = getLocalIsoDate();
     const activeLists = store.getActiveLists();
     const customLists = store.getCustomLists();
@@ -1134,14 +1145,56 @@ function initApp(): void {
 
     const listsNav = document.getElementById('customListsNav') as HTMLElement;
     listsNav.replaceChildren();
+    const folderDatalist = document.getElementById('folderSuggestionsList');
+    if (folderDatalist) {
+      folderDatalist.replaceChildren(
+        ...store.getListFolders().map((name) => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          return opt;
+        }),
+      );
+    }
     const createCustomListNavButton = (list: TaskList): HTMLButtonElement => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'nav-item';
+      btn.draggable = true;
       btn.setAttribute(
         'aria-current',
         activeView === 'lists' && activeListId === list.id ? 'page' : 'false',
       );
+      btn.addEventListener('dragstart', (event) => {
+        draggedTaskId = null;
+        draggedListId = list.id;
+        btn.classList.add('is-dragging');
+        event.dataTransfer?.setData('text/plain', list.id);
+      });
+      btn.addEventListener('dragend', () => {
+        draggedListId = null;
+        btn.classList.remove('is-dragging');
+        document.querySelectorAll('.is-drop-target').forEach((el) => {
+          el.classList.remove('is-drop-target');
+        });
+      });
+      btn.addEventListener('dragover', (event) => {
+        if (draggedListId && draggedListId !== list.id) {
+          event.preventDefault();
+          btn.classList.add('is-drop-target');
+        }
+      });
+      btn.addEventListener('dragleave', () => {
+        btn.classList.remove('is-drop-target');
+      });
+      btn.addEventListener('drop', (event) => {
+        event.preventDefault();
+        btn.classList.remove('is-drop-target');
+        const sourceId = draggedListId;
+        draggedListId = null;
+        if (sourceId && sourceId !== list.id && store.moveListOrder(sourceId, list.id)) {
+          render();
+        }
+      });
 
       const labelWrap = document.createElement('span');
       labelWrap.className = 'nav-label-wrap';
@@ -1192,6 +1245,24 @@ function initApp(): void {
       const summary = document.createElement('summary');
       summary.className = 'list-folder-summary';
       summary.textContent = folderName;
+      summary.addEventListener('dragover', (event) => {
+        if (draggedListId) {
+          event.preventDefault();
+          summary.classList.add('is-drop-target');
+        }
+      });
+      summary.addEventListener('dragleave', () => {
+        summary.classList.remove('is-drop-target');
+      });
+      summary.addEventListener('drop', (event) => {
+        event.preventDefault();
+        summary.classList.remove('is-drop-target');
+        const sourceId = draggedListId;
+        draggedListId = null;
+        if (sourceId && store.setListFolder(sourceId, folderName)) {
+          render();
+        }
+      });
       const itemsWrap = document.createElement('div');
       itemsWrap.className = 'list-folder-items';
       for (const list of folderLists) {
@@ -1239,7 +1310,7 @@ function initApp(): void {
       });
     }
     if (deleteListBtn) {
-      deleteListBtn.hidden = !isCustomList || (!isForeignList && Boolean(currentList?.shared));
+      deleteListBtn.hidden = !isCustomList;
       const deleteLabel = isForeignList
         ? t(store.locale, 'list.leaveBtn')
         : t(store.locale, 'list.delete');
@@ -1395,9 +1466,13 @@ function initApp(): void {
     const copyBtn = document.getElementById('copyInviteUrlBtn') as HTMLButtonElement | null;
     const nativeBtn = document.getElementById('nativeShareInviteBtn') as HTMLButtonElement | null;
     const freeLimitHint = document.getElementById('shareFreeLimitHint') as HTMLElement | null;
+    const readOnly = Boolean(
+      (document.getElementById('shareReadOnlyCheckbox') as HTMLInputElement | null)?.checked,
+    );
     const existingUrl = store.getInviteUrl(
       listId,
       getShareBaseOrigin(window.location.origin, store.serverUrl),
+      { readOnly },
     );
     const allowedToShare = listId ? store.canShareAnotherOwnedList(listId) : false;
     if (freeLimitHint) {
@@ -1691,12 +1766,51 @@ function initApp(): void {
     render();
   });
 
+  const toggleNewListFolderBtn = document.getElementById('toggleNewListFolderBtn') as HTMLButtonElement | null;
+  const newListFolderRow = document.getElementById('newListFolderRow') as HTMLElement | null;
+  const newListFolderInput = document.getElementById('newListFolderInput') as HTMLInputElement | null;
+  const setNewListFolderOpen = (open: boolean): void => {
+    newListFolderOpen = open;
+    if (newListFolderRow) newListFolderRow.hidden = !open;
+    toggleNewListFolderBtn?.setAttribute('aria-expanded', String(open));
+    toggleNewListFolderBtn?.setAttribute('aria-pressed', String(open));
+  };
+  toggleNewListFolderBtn?.addEventListener('click', () => {
+    setNewListFolderOpen(!newListFolderOpen);
+    if (newListFolderOpen) {
+      newListFolderInput?.focus();
+    }
+  });
+
+  const customListsHeading = document.getElementById('customListsHeading') as HTMLElement | null;
+  customListsHeading?.addEventListener('dragover', (event) => {
+    if (draggedListId) {
+      event.preventDefault();
+      customListsHeading.classList.add('is-drop-target');
+    }
+  });
+  customListsHeading?.addEventListener('dragleave', () => {
+    customListsHeading.classList.remove('is-drop-target');
+  });
+  customListsHeading?.addEventListener('drop', (event) => {
+    event.preventDefault();
+    customListsHeading.classList.remove('is-drop-target');
+    const sourceId = draggedListId;
+    draggedListId = null;
+    if (sourceId && store.setListFolder(sourceId, null)) {
+      render();
+    }
+  });
+
   document.getElementById('newListForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const input = document.getElementById('newListInput') as HTMLInputElement;
     if (!input.value.trim()) return;
-    const created = store.addList(input.value);
+    const folderValue = newListFolderInput?.value.trim() || null;
+    const created = store.addList(input.value, folderValue);
     input.value = '';
+    if (newListFolderInput) newListFolderInput.value = '';
+    setNewListFolderOpen(false);
     activeView = 'lists';
     activeListId = created.id;
     trackDiagnostic('list_created');
@@ -1748,6 +1862,21 @@ function initApp(): void {
     render();
   });
 
+  function updateMoveListButtons(): void {
+    const upBtn = document.getElementById('moveListUpBtn') as HTMLButtonElement | null;
+    const downBtn = document.getElementById('moveListDownBtn') as HTMLButtonElement | null;
+    if (!upBtn && !downBtn) return;
+    const customLists = store.getCustomLists();
+    const current = customLists.find((l) => l.id === activeListId);
+    const currentFolder = current?.folder?.trim() || null;
+    const siblings = current
+      ? customLists.filter((l) => (l.folder?.trim() || null) === currentFolder)
+      : [];
+    const idx = siblings.findIndex((l) => l.id === activeListId);
+    if (upBtn) upBtn.disabled = idx <= 0;
+    if (downBtn) downBtn.disabled = idx < 0 || idx >= siblings.length - 1;
+  }
+
   document.getElementById('renameListBtn')?.addEventListener('click', () => {
     const currentList = store.getActiveLists().find((l) => l.id === activeListId);
     if (!currentList) return;
@@ -1764,7 +1893,22 @@ function initApp(): void {
         }),
       );
     }
+    updateMoveListButtons();
     renameListDialog.showModal();
+  });
+
+  document.getElementById('moveListUpBtn')?.addEventListener('click', () => {
+    if (store.nudgeListOrder(activeListId, 'up')) {
+      updateMoveListButtons();
+      render();
+    }
+  });
+
+  document.getElementById('moveListDownBtn')?.addEventListener('click', () => {
+    if (store.nudgeListOrder(activeListId, 'down')) {
+      updateMoveListButtons();
+      render();
+    }
   });
 
   document.getElementById('renameListForm')?.addEventListener('submit', (event) => {
@@ -1835,6 +1979,7 @@ function initApp(): void {
       return;
     }
     if (currentList.shared) {
+      showToast(t(store.locale, 'toast.unshareBeforeDelete'));
       return;
     }
     requestDeleteConfirmation(t(store.locale, 'confirm.deleteListPrompt'), () => {
@@ -1888,16 +2033,24 @@ function initApp(): void {
   document.getElementById('shareListSelect')?.addEventListener('change', (event) => {
     refreshShareDialogState((event.target as HTMLSelectElement).value);
   });
+  document.getElementById('shareReadOnlyCheckbox')?.addEventListener('change', () => {
+    const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    refreshShareDialogState(listId);
+  });
 
   document.getElementById('copyInviteUrlBtn')?.addEventListener('click', async (event) => {
     const btn = event.currentTarget as HTMLButtonElement;
     const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    const readOnly = Boolean(
+      (document.getElementById('shareReadOnlyCheckbox') as HTMLInputElement | null)?.checked,
+    );
     btn.dataset.loading = 'true';
     btn.disabled = true;
     try {
       const { inviteUrl } = store.shareList(
         listId,
         getShareBaseOrigin(window.location.origin, store.serverUrl),
+        { readOnly },
       );
       refreshShareDialogState(listId);
       render();
@@ -1928,10 +2081,14 @@ function initApp(): void {
 
   document.getElementById('nativeShareInviteBtn')?.addEventListener('click', async () => {
     const listId = (document.getElementById('shareListSelect') as HTMLSelectElement).value;
+    const readOnly = Boolean(
+      (document.getElementById('shareReadOnlyCheckbox') as HTMLInputElement | null)?.checked,
+    );
     try {
       const { inviteUrl } = store.shareList(
         listId,
         getShareBaseOrigin(window.location.origin, store.serverUrl),
+        { readOnly },
       );
       refreshShareDialogState(listId);
       render();
@@ -2001,13 +2158,24 @@ function initApp(): void {
         extractSyncKeyFromInput(rawValue).startsWith('pling-');
       if (looksLikePairing) {
         store.setSyncKey(rawValue, { forceReset: true });
-        await store.syncWithServer(undefined, { replaceOldestDevice: true });
-        selectBestViewAfterPairing();
-        hasSyncedOnce = true;
-        input.value = '';
-        trackDiagnostic('device_paired');
-        await closeTopLayer(shareDialog);
-        showToast(t(store.locale, 'toast.devicePaired'));
+        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
+        if (res.synced) {
+          selectBestViewAfterPairing();
+          hasSyncedOnce = true;
+          input.value = '';
+          trackDiagnostic('device_paired');
+          await closeTopLayer(shareDialog);
+          showToast(t(store.locale, 'toast.devicePaired'));
+        } else {
+          showToast(
+            t(
+              store.locale,
+              store.lastSyncErrorCode === 'DEVICE_LIMIT_REACHED'
+                ? 'toast.deviceLimitReached'
+                : 'toast.pairFailed',
+            ),
+          );
+        }
         render();
         return;
       }
@@ -2684,6 +2852,9 @@ function initApp(): void {
   }
 
   function checkDueReminders(): void {
+    if (store.purgeExpiredTrash() > 0) {
+      render();
+    }
     const nowMs = Date.now();
     const dueTasks = getDueReminderTasks(store.tasks, nowMs, firedReminderKeys);
     if (dueTasks.length === 0) return;
@@ -2791,12 +2962,23 @@ function initApp(): void {
     if (pairCandidate?.trim()) {
       try {
         store.setSyncKey(extractSyncKeyFromInput(trimmed), { forceReset: true });
-        await store.syncWithServer(undefined, { replaceOldestDevice: true });
-        selectBestViewAfterPairing();
-        hasSyncedOnce = true;
-        syncDialogKeyFieldsAfterDeepLink();
-        trackDiagnostic('device_paired');
-        showToast(t(store.locale, 'toast.devicePaired'));
+        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
+        if (res.synced) {
+          selectBestViewAfterPairing();
+          hasSyncedOnce = true;
+          syncDialogKeyFieldsAfterDeepLink();
+          trackDiagnostic('device_paired');
+          showToast(t(store.locale, 'toast.devicePaired'));
+        } else {
+          showToast(
+            t(
+              store.locale,
+              store.lastSyncErrorCode === 'DEVICE_LIMIT_REACHED'
+                ? 'toast.deviceLimitReached'
+                : 'toast.pairFailed',
+            ),
+          );
+        }
         render();
       } catch {
         showToast(t(store.locale, 'toast.pairFailed'));
@@ -2899,12 +3081,23 @@ function initApp(): void {
       try {
         // Apply syncKey synchronously before any await so focus/visibility listeners never sync the throwaway key.
         store.setSyncKey(pairKey, { forceReset: true });
-        await store.syncWithServer(undefined, { replaceOldestDevice: true });
-        selectBestViewAfterPairing();
-        hasSyncedOnce = true;
+        const res = await store.syncWithServer(undefined, { replaceOldestDevice: true });
         didStartupSync = true;
-        trackDiagnostic('device_paired');
-        showToast(t(store.locale, 'toast.devicePaired'));
+        if (res.synced) {
+          selectBestViewAfterPairing();
+          hasSyncedOnce = true;
+          trackDiagnostic('device_paired');
+          showToast(t(store.locale, 'toast.devicePaired'));
+        } else {
+          showToast(
+            t(
+              store.locale,
+              store.lastSyncErrorCode === 'DEVICE_LIMIT_REACHED'
+                ? 'toast.deviceLimitReached'
+                : 'toast.pairFailed',
+            ),
+          );
+        }
         render();
       } catch {
         showToast(t(store.locale, 'toast.pairFailed'));

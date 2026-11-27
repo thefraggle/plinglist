@@ -501,7 +501,88 @@ export class PlinglistStore {
   }
 
   getCustomLists(): TaskList[] {
-    return this.getActiveLists().filter((list) => !this.isSystemTasksList(list.id));
+    return this.getActiveLists()
+      .filter((list) => !this.isSystemTasksList(list.id))
+      .sort((a, b) => {
+        const hasA = typeof a.position === 'number';
+        const hasB = typeof b.position === 'number';
+        if (hasA && hasB) return a.position! - b.position!;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return 0;
+      });
+  }
+
+  moveListOrder(draggedListId: string, targetListId: string): boolean {
+    if (
+      draggedListId === targetListId ||
+      this.isSystemTasksList(draggedListId) ||
+      this.isSystemTasksList(targetListId)
+    ) {
+      return false;
+    }
+    const customLists = this.getCustomLists();
+    const dragged = customLists.find((l) => l.id === draggedListId);
+    const target = customLists.find((l) => l.id === targetListId);
+    if (!dragged || !target) return false;
+
+    const orderedIds = customLists.map((l) => l.id);
+    const fromIdx = orderedIds.indexOf(draggedListId);
+    const toIdx = orderedIds.indexOf(targetListId);
+    if (fromIdx < 0 || toIdx < 0) return false;
+
+    orderedIds.splice(fromIdx, 1);
+    orderedIds.splice(toIdx, 0, draggedListId);
+
+    const nowIso = new Date().toISOString();
+    const hlc = this.clock.now();
+    if (!this.isForeignJoinedList(dragged)) {
+      const targetFolder = target.folder?.trim() || null;
+      const draggedFolder = dragged.folder?.trim() || null;
+      if (draggedFolder !== targetFolder) {
+        dragged.folder = targetFolder;
+      }
+    }
+    orderedIds.forEach((id, index) => {
+      const item = this.lists.find((l) => l.id === id);
+      if (item) {
+        item.position = index;
+        if (!this.isForeignJoinedList(item)) {
+          item.updatedAt = nowIso;
+          item.hlc = hlc;
+        }
+      }
+    });
+    this.persist();
+    return true;
+  }
+
+  nudgeListOrder(listId: string, direction: 'up' | 'down'): boolean {
+    if (this.isSystemTasksList(listId)) return false;
+    const customLists = this.getCustomLists();
+    const current = customLists.find((l) => l.id === listId);
+    if (!current) return false;
+    const currentFolder = current.folder?.trim() || null;
+    const siblings = customLists.filter((l) => (l.folder?.trim() || null) === currentFolder);
+    const idx = siblings.findIndex((l) => l.id === listId);
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || targetIdx < 0 || targetIdx >= siblings.length) {
+      return false;
+    }
+    return this.moveListOrder(listId, siblings[targetIdx].id);
+  }
+
+  setListFolder(listId: string, folder: string | null): TaskList | null {
+    if (this.isSystemTasksList(listId)) return null;
+    const list = this.lists.find((item) => item.id === listId && item.deletedAt === null);
+    if (!list || this.isForeignJoinedList(list)) return null;
+    const nextFolder = folder?.trim() || null;
+    if ((list.folder?.trim() || null) === nextFolder) return list;
+    list.folder = nextFolder;
+    list.updatedAt = new Date().toISOString();
+    list.hlc = this.clock.now();
+    this.persist();
+    return list;
   }
 
   getOwnedSharedLists(): TaskList[] {
@@ -746,9 +827,6 @@ export class PlinglistStore {
     }
     if (!this.canShareAnotherOwnedList(listId)) {
       throw new SharedListLimitError();
-    }
-    if (options?.readOnly && !this.isPro()) {
-      throw new ProEntitlementRequiredError('read-only share links');
     }
     list.shared = true;
     list.inviteToken = list.inviteToken ?? createInviteToken('inv');
@@ -1255,6 +1333,9 @@ export class PlinglistStore {
         purged += 1;
       }
     }
+    if (purged > 0) {
+      this.persist();
+    }
     return purged;
   }
 
@@ -1408,7 +1489,13 @@ export class PlinglistStore {
       this.clock.receive(incomingList.hlc);
       const index = this.lists.findIndex((l) => l.id === incomingList.id);
       if (index >= 0) {
-        this.lists[index] = mergeListLww(this.lists[index], incomingList);
+        const prevLocalPos = this.lists[index].position;
+        const wasForeign = this.isForeignJoinedList(this.lists[index]);
+        const merged = mergeListLww(this.lists[index], incomingList);
+        if (wasForeign && typeof prevLocalPos === 'number') {
+          merged.position = prevLocalPos;
+        }
+        this.lists[index] = merged;
       } else {
         this.lists.push(incomingList);
       }

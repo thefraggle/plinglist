@@ -2,6 +2,16 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.33] - 2026-11-27
+
+### Deutsch
+- Eigene Listen direkt beim Anlegen einem Ordner zuweisen (über das Ordner-Symbol neben dem Eingabefeld), ohne dass Listennamen mit Schrägstrich ungewollt geteilt werden.
+- Eigene Listen frei per Ziehen oder Pfeil-Schaltflächen sortieren und in Ordner verschieben, schreibgeschützte Einladungslinks direkt im Teilen-Dialog aktivieren sowie größere, noch besser lesbare Schrift in allen Ansichten.
+
+### English
+- Assign custom lists to a folder right when creating them (via the folder button next to the input) while keeping slashes inside list names intact.
+- Reorder custom lists and move them between folders via drag and drop or arrow buttons, enable read-only invite links directly in the Share dialog, and enjoy slightly larger, clearer typography across all views.
+
 ## [0.1.32] - 2026-11-27
 
 ### Deutsch

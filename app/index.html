@@ -160,21 +160,49 @@
         <div class="sidebar-divider"></div>
 
         <div class="lists-section">
-          <p class="section-label" data-i18n="nav.lists">Listen</p>
+          <p id="customListsHeading" class="section-label" data-i18n="nav.lists">Listen</p>
           <nav id="customListsNav" class="nav-group" aria-label="Lists"></nav>
 
-          <form id="newListForm" class="inline-add-form">
-            <label for="newListInput" class="sr-only" data-i18n="nav.newListPlaceholder">Neue Liste...</label>
-            <input
-              id="newListInput"
-              type="text"
-              autocomplete="off"
-              maxlength="80"
-              data-i18n-placeholder="nav.newListPlaceholder"
-              placeholder="Neue Liste..."
-              required
-            />
-            <button type="submit" class="btn-secondary btn-compact" data-i18n="nav.createList">+</button>
+          <form id="newListForm" class="new-list-form">
+            <div class="inline-add-row">
+              <label for="newListInput" class="sr-only" data-i18n="nav.newListPlaceholder">Neue Liste...</label>
+              <input
+                id="newListInput"
+                type="text"
+                autocomplete="off"
+                maxlength="80"
+                data-i18n-placeholder="nav.newListPlaceholder"
+                placeholder="Neue Liste..."
+                required
+              />
+              <button
+                type="button"
+                id="toggleNewListFolderBtn"
+                class="btn-secondary btn-icon"
+                aria-expanded="false"
+                aria-pressed="false"
+                aria-controls="newListFolderRow"
+                data-i18n-aria="nav.newListFolderAria"
+                title="Ordner / Gruppe zuweisen"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+              <button type="submit" class="btn-secondary btn-compact" data-i18n="nav.createList">+</button>
+            </div>
+            <div id="newListFolderRow" class="new-list-folder-row" hidden>
+              <label for="newListFolderInput" class="sr-only" data-i18n="list.folderLabel">Ordner / Gruppe (optional)</label>
+              <input
+                id="newListFolderInput"
+                type="text"
+                autocomplete="off"
+                maxlength="60"
+                list="folderSuggestionsList"
+                data-i18n-placeholder="list.folderPlaceholder"
+                placeholder="z. B. Arbeit, Projekte, Familie"
+              />
+            </div>
           </form>
         </div>
 
@@ -470,6 +498,13 @@
             />
             <datalist id="folderSuggestionsList"></datalist>
           </div>
+          <div class="field-group">
+            <span class="field-label" data-i18n="list.orderLabel">Position in der Seitenleiste</span>
+            <div class="detail-actions-row">
+              <button type="button" id="moveListUpBtn" class="btn-secondary btn-compact" data-i18n="list.moveUpBtn">↑ Nach oben</button>
+              <button type="button" id="moveListDownBtn" class="btn-secondary btn-compact" data-i18n="list.moveDownBtn">↓ Nach unten</button>
+            </div>
+          </div>
           <div class="dialog-footer">
             <button type="submit" class="btn-primary btn-compact" data-i18n="settings.save">Speichern</button>
           </div>
@@ -495,6 +530,10 @@
               <label for="shareListSelect" data-i18n="share.selectListLabel">Liste auswählen</label>
               <select id="shareListSelect"></select>
             </div>
+            <label class="checkbox-row">
+              <input id="shareReadOnlyCheckbox" type="checkbox" />
+              <span data-i18n="share.readOnlyLabel">Schreibgeschützter Link (Gäste können nur lesen)</span>
+            </label>
             <div class="copy-row">
               <input id="shareInviteUrlInput" type="url" readonly aria-label="Invite URL" />
               <button type="button" id="copyInviteUrlBtn" class="btn-primary btn-compact" data-i18n="share.copyInviteBtn">
