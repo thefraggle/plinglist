@@ -207,6 +207,9 @@ const SAMPLE_WUNDERLIST_JSON = JSON.stringify(
 );
 
 function initApp(): void {
+  if (isNativeShellOrigin() && detectNativeOsInfo().osName === 'macOS') {
+    document.documentElement.classList.add('is-mac-native');
+  }
   let scheduleBackgroundSync = (): void => {};
   const browserLocale = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en';
   const startupParams = new URLSearchParams(window.location.search);

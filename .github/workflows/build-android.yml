@@ -311,6 +311,14 @@ jobs:
               );
             }
 
+            const stringsPath = 'android/app/src/main/res/values/strings.xml';
+            if (fs.existsSync(stringsPath)) {
+              let stringsXml = fs.readFileSync(stringsPath, 'utf8');
+              stringsXml = stringsXml.replace(/<string name="app_name">[^<]*<\/string>/, '<string name="app_name">Plinglist</string>');
+              stringsXml = stringsXml.replace(/<string name="title_activity_main">[^<]*<\/string>/, '<string name="title_activity_main">Plinglist</string>');
+              fs.writeFileSync(stringsPath, stringsXml);
+            }
+
             const mainActivityPath = 'android/app/src/main/java/de/goork/plinglist/MainActivity.java';
             if (fs.existsSync(mainActivityPath)) {
               const javaLines = [
@@ -377,6 +385,8 @@ jobs:
                 '        }',
                 '        if (getBridge() != null && getBridge().getWebView() != null) {',
                 '            getBridge().getWebView().setBackgroundColor(bgColor);',
+                '            getBridge().getWebView().setHorizontalScrollBarEnabled(false);',
+                '            getBridge().getWebView().setOverScrollMode(View.OVER_SCROLL_NEVER);',
                 '        }',
                 '    }',
                 '',

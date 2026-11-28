@@ -198,11 +198,75 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Plinglist" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :CFBundleName Plinglist" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string Plinglist" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :LSHasLocalizedDisplayName true" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSHasLocalizedDisplayName bool true" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :LSApplicationCategoryType public.app-category.productivity" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.productivity" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Set :UIViewControllerBasedStatusBarAppearance true" "$INFO_PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool true" "$INFO_PLIST"
 
           node - <<'EOF'
           const fs = require('node:fs');
+          const path = require('node:path');
+          const stringsContent = '"CFBundleDisplayName" = "Plinglist";\n"CFBundleName" = "Plinglist";\n';
+          for (const lproj of ['Base.lproj', 'en.lproj', 'de.lproj']) {
+            const dir = path.join('ios/App/App', lproj);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, 'InfoPlist.strings'), stringsContent);
+          }
+
+          const pbxPath = 'ios/App/App.xcodeproj/project.pbxproj';
+          if (fs.existsSync(pbxPath)) {
+            let pbx = fs.readFileSync(pbxPath, 'utf8');
+            if (!pbx.includes('InfoPlist.strings')) {
+              const buildFileId = 'A1B2C3D4E5F6000100000001';
+              const variantGroupId = 'A1B2C3D4E5F6000100000002';
+              const baseRefId = 'A1B2C3D4E5F6000100000003';
+              const enRefId = 'A1B2C3D4E5F6000100000004';
+              const deRefId = 'A1B2C3D4E5F6000100000005';
+
+              pbx = pbx.replace(
+                '/* End PBXBuildFile section */',
+                `\t\t${buildFileId} /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = ${variantGroupId} /* InfoPlist.strings */; };\n/* End PBXBuildFile section */`,
+              );
+              pbx = pbx.replace(
+                '/* End PBXFileReference section */',
+                [
+                  `\t\t${baseRefId} /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Base; path = Base.lproj/InfoPlist.strings; sourceTree = "<group>"; };`,
+                  `\t\t${enRefId} /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };`,
+                  `\t\t${deRefId} /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };`,
+                  '/* End PBXFileReference section */',
+                ].join('\n'),
+              );
+              pbx = pbx.replace(
+                '/* End PBXVariantGroup section */',
+                [
+                  `\t\t${variantGroupId} /* InfoPlist.strings */ = {`,
+                  '\t\t\tisa = PBXVariantGroup;',
+                  '\t\t\tchildren = (',
+                  `\t\t\t\t${baseRefId} /* Base */,`,
+                  `\t\t\t\t${enRefId} /* en */,`,
+                  `\t\t\t\t${deRefId} /* de */,`,
+                  '\t\t\t);',
+                  '\t\t\tname = InfoPlist.strings;',
+                  '\t\t\tsourceTree = "<group>";',
+                  '\t\t};',
+                  '/* End PBXVariantGroup section */',
+                ].join('\n'),
+              );
+              pbx = pbx.replace(
+                /(\/\* App \*\/ = \{\s*isa = PBXGroup;\s*children = \(\s*)/,
+                `$1${variantGroupId} /* InfoPlist.strings */,\n\t\t\t\t`,
+              );
+              pbx = pbx.replace(
+                /(isa = PBXResourcesBuildPhase;[\s\S]*?files = \(\s*)/,
+                `$1${buildFileId} /* InfoPlist.strings in Resources */,\n\t\t\t\t`,
+              );
+              pbx = pbx.replace(
+                /knownRegions = \(\s*([^)]*?)\);/,
+                (match, inner) => (inner.includes('de,') || inner.includes('de\n') ? match : `knownRegions = (\n\t\t\t\t${inner.trim()}\n\t\t\t\tde,\n\t\t\t);`),
+              );
+              fs.writeFileSync(pbxPath, pbx);
+            }
+          }
+
           const appDelegatePath = 'ios/App/App/AppDelegate.swift';
           if (fs.existsSync(appDelegatePath)) {
             const swiftLines = [
@@ -236,17 +300,16 @@ jobs:
               '            bridgeVC.webView?.isOpaque = false',
               '            bridgeVC.webView?.backgroundColor = canvasColor',
               '            bridgeVC.webView?.scrollView.backgroundColor = canvasColor',
-              '            if #available(iOS 14.0, *) {',
-              '                var isMacHost = false',
-              '                #if targetEnvironment(macCatalyst)',
+              '            bridgeVC.webView?.scrollView.showsHorizontalScrollIndicator = false',
+              '            var isMacHost = false',
+              '            #if targetEnvironment(macCatalyst)',
+              '            isMacHost = true',
+              '            #endif',
+              '            if #available(iOS 14.0, *), !isMacHost && ProcessInfo.processInfo.isiOSAppOnMac {',
               '                isMacHost = true',
-              '                #endif',
-              '                if !isMacHost && ProcessInfo.processInfo.isiOSAppOnMac {',
-              '                    isMacHost = true',
-              '                }',
-              '                if isMacHost {',
-              '                    bridgeVC.webView?.pageZoom = 1.15',
-              '                }',
+              '            }',
+              '            if isMacHost {',
+              '                bridgeVC.webView?.scrollView.bounces = false',
               '            }',
               '        }',
               '    }',
