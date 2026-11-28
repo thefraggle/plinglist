@@ -2,6 +2,14 @@
 
 All notable changes to **Plinglist** are documented in this file.
 
+## [0.1.36] - 2026-11-28
+
+### Deutsch
+- Direkter Hinweis unter der Diagnose-Option in den Einstellungen ergänzt: Erklärt auf einen Blick, dass ausschließlich anonyme App-Starts und Funktionsaufrufe gezählt werden und niemals Aufgabentitel, Listen, Notizen oder Sync-Keys übertragen werden.
+
+### English
+- Added a clear one-line note right below the diagnostics toggle in Settings explaining that only anonymous app starts and feature actions are counted — never task titles, lists, notes, or Sync Keys.
+
 ## [0.1.35] - 2026-11-27
 
 ### Deutsch

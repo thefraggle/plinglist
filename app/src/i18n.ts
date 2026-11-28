@@ -192,12 +192,14 @@ export const TRANSLATIONS = {
     'settings.autoHideEmptySmart': 'Auto-hide empty smart lists',
     'settings.showAllSmartList': 'Show "All" smart list',
     'settings.telemetryEnabled': 'Send anonymous diagnostic data (cookie-free, no user data)',
+    'settings.telemetryHint':
+      'Self-hosted in Germany: counts anonymous app starts and feature actions only — never task titles, lists, notes, or Sync Keys.',
     'settings.telemetrySelfHostedHint': 'Permanently disabled on self-hosted instances.',
     'settings.syncEnabled': 'Enable Cloud Sync (uncheck for local-only mode)',
     'settings.deleteWorkspaceBtn': 'Delete all local & synced data…',
     'settings.syncNowBtn': 'Sync now',
     'settings.aboutFooter':
-      'Plinglist v0.1.35 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.36 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Save',
     'confirm.deleteTitle': 'Confirm deletion',
     'confirm.deleteTaskPrompt': 'Do you really want to delete this task?',
@@ -433,12 +435,14 @@ export const TRANSLATIONS = {
     'settings.autoHideEmptySmart': 'Leere intelligente Listen automatisch ausblenden',
     'settings.showAllSmartList': 'Intelligente Liste „Alle“ anzeigen',
     'settings.telemetryEnabled': 'Anonyme Diagnosedaten senden (cookie-frei, keine Nutzerdaten)',
+    'settings.telemetryHint':
+      'Selbstgehostet in Deutschland: zählt nur anonyme App-Starts und Funktionsaufrufe – niemals Aufgabentitel, Listen, Notizen oder Sync-Keys.',
     'settings.telemetrySelfHostedHint': 'Bei Self-Hosting dauerhaft deaktiviert.',
     'settings.syncEnabled': 'Cloud-Sync aktivieren (deaktivieren für reinen Lokalmodus)',
     'settings.deleteWorkspaceBtn': 'Alle lokalen & synchronisierten Daten löschen…',
     'settings.syncNowBtn': 'Jetzt synchronisieren',
     'settings.aboutFooter':
-      'Plinglist v0.1.35 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
+      'Plinglist v0.1.36 · © 2026 Daniel Notthoff (Goork) · Local-First & Open Source (AGPLv3)',
     'settings.save': 'Speichern',
     'confirm.deleteTitle': 'Löschen bestätigen',
     'confirm.deleteTaskPrompt': 'Möchtest du diese Aufgabe wirklich löschen?',

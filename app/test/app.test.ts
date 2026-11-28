@@ -69,6 +69,8 @@ test('i18n dictionaries have 100% key parity between en and de', () => {
   assert.ok(t('en', 'search.toggle').length > 0);
   assert.ok(t('de', 'search.createFromQuery').includes('{query}'));
   assert.ok(t('en', 'search.createFromQuery').includes('{query}'));
+  assert.match(t('de', 'settings.telemetryHint'), /App-Starts.*Funktionsaufrufe.*Sync-Keys/i);
+  assert.match(t('en', 'settings.telemetryHint'), /app starts.*feature actions.*Sync Keys/i);
 });
 
 test('normalizeServerUrl defaults to official API and validates self-hosted URLs', () => {
@@ -683,6 +685,7 @@ test('PlinglistStore auto-migrates legacy api.plinglist.app serverUrl to same-or
   assert.match(html, /id="openImprintBtn"/);
   assert.match(html, /id="openPrivacyBtn"/);
   assert.match(html, /id="settingsTelemetryCheckbox"/);
+  assert.match(html, /id="settingsTelemetryHint"/);
   assert.match(html, /id="settingsSyncEnabledCheckbox"/);
   assert.match(html, /id="deleteWorkspaceBtn"/);
   assert.match(html, /id="toggleSearchBtn"/);

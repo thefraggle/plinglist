@@ -2680,9 +2680,13 @@ function initApp(): void {
     telemetryCheckbox.checked = telemetrySupported && store.preferences.telemetryEnabled;
     telemetryCheckbox.disabled = !telemetrySupported;
     const telemetryHint = document.getElementById(
+      'settingsTelemetryHint',
+    ) as HTMLElement | null;
+    if (telemetryHint) telemetryHint.hidden = !telemetrySupported;
+    const telemetrySelfHostedHint = document.getElementById(
       'settingsTelemetrySelfHostedHint',
     ) as HTMLElement | null;
-    if (telemetryHint) telemetryHint.hidden = telemetrySupported;
+    if (telemetrySelfHostedHint) telemetrySelfHostedHint.hidden = telemetrySupported;
     updateSyncLabels();
     (document.getElementById('settingsErrorText') as HTMLElement).hidden = true;
     settingsDialog.showModal();
